@@ -105,12 +105,12 @@ module "instances" {
   count         = var.instance_count
   ami           = var.selected_ami
   instance_type = var.instance_type
-  subnet_id     = module.vpc.private_subnets[0]
-  sg_ids        = [aws_security_group.ssh.id, aws_security_group.web.id]
+  subnet_id     = module.vpc.public_subnets[0]
+  sg_ids        = var.instance_role == "webserver" ? [aws_security_group.ssh.id, aws_security_group.web.id] : [aws_security_group.ssh.id]
   key_name      = aws_key_pair.lab.key_name
   env_name      = var.env_name
   role          = var.instance_role
   distribution  = var.instance_distribution
   size          = var.instance_size
-  associate_public_ip = var.instance_role == "webserver" ? true : false
+  associate_public_ip = true
 }

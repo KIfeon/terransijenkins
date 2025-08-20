@@ -39,22 +39,23 @@ pipeline {
                     script {
                         if (env.TF_ACTION == "deploy") {
                             sh """
-                                terraform plan -out=tfplan \\
-                                    -var='env_name=$TF_VAR_env_name' \\
-                                    -var='instance_count=$TF_VAR_instance_count' \\
-                                    -var='instance_role=$TF_VAR_instance_role' \\
-                                    -var='instance_distribution=$TF_VAR_instance_distribution' \\
+                                terraform plan -out=tfplan \
+                                    -var='env_name=$TF_VAR_env_name' \
+                                    -var='instance_count=$TF_VAR_instance_count' \
+                                    -var='instance_role=$TF_VAR_instance_role' \
+                                    -var='instance_distribution=$TF_VAR_instance_distribution' \
                                     -var='instance_size=$TF_VAR_instance_size'
 
                                 terraform apply -auto-approve tfplan
+                                sleep 30
                             """
                         } else {
                             sh """
-                                terraform destroy -auto-approve \\
-                                    -var='env_name=$TF_VAR_env_name' \\
-                                    -var='instance_count=$TF_VAR_instance_count' \\
-                                    -var='instance_role=$TF_VAR_instance_role' \\
-                                    -var='instance_distribution=$TF_VAR_instance_distribution' \\
+                                terraform destroy -auto-approve \
+                                    -var='env_name=$TF_VAR_env_name' \
+                                    -var='instance_count=$TF_VAR_instance_count' \
+                                    -var='instance_role=$TF_VAR_instance_role' \
+                                    -var='instance_distribution=$TF_VAR_instance_distribution' \
                                     -var='instance_size=$TF_VAR_instance_size'
                             """
                         }
@@ -68,14 +69,12 @@ pipeline {
                 terraform output -json > tf_outputs.json
                 bastion_ip=$(jq -r .bastion_public_ip.value tf_outputs.json)
                 instance_ips=$(jq -r .lab_public_ips.value[] tf_outputs.json)
-                echo "[bastion_host]" > ansible_inventory.ini
-                echo "bastion_host ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
-                echo "" >> ansible_inventory.ini
-                echo "[webservers]" >> ansible_inventory.ini
+                echo "[targets]" > ansible_inventory.ini
+                echo "bastion ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
                 i=1
                 for ip in $instance_ips; do
                   if [ "$ip" != "null" ] && [ -n "$ip" ]; then
-                    echo "web$i ansible_host=$ip ansible_user=ubuntu" >> ansible_inventory.ini
+                    echo "instance$i ansible_host=$ip ansible_user=ubuntu" >> ansible_inventory.ini
                     i=$((i+1))
                   fi
                 done
