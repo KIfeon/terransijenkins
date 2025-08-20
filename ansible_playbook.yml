@@ -87,10 +87,10 @@
       when: ansible_os_family == 'Debian'
 
     - name: Ensure Apache is running and enabled (Amazon Linux)
-        service:
-          name: httpd
-          state: started
-          enabled: yes
+      service:
+        name: httpd
+        state: started
+        enabled: yes
       when: ansible_os_family in ['RedHat', 'Amazon']
 
     - name: Simple index page
