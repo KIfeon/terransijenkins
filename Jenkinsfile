@@ -64,6 +64,7 @@ pipeline {
             }
         }
         stage('Generate Ansible Inventory') {
+            when { expression { env.TF_ACTION == "deploy" } }
             steps {
                 sh '''
                 terraform output -json > tf_outputs.json
@@ -84,6 +85,7 @@ pipeline {
             }
         }
         stage('Write Ansible SSH Key') {
+            when { expression { env.TF_ACTION == "deploy" } }
             steps {
                 sh '''
                 terraform output -raw ssh_private_key_pem > lab_rsa.pem
@@ -92,6 +94,7 @@ pipeline {
             }
         }
         stage('Ansible - Copy SSH Key') {
+            when { expression { env.TF_ACTION == "deploy" } }
             steps {
                 sh 'ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible_inventory.ini ansible_playbook.yml --private-key lab_rsa.pem --timeout 60'
             }
