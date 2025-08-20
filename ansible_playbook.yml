@@ -27,8 +27,26 @@
         group: ubuntu
         mode: '0600'
 
+- name: Set hostname to inventory name
+  hosts: targets
+  remote_user: ubuntu
+  become: true
+  gather_facts: true
+  serial: 1
+  tasks:
+    - name: Set the system hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Ensure hostname present in /etc/hosts
+      lineinfile:
+        dest: /etc/hosts
+        regexp: '^127.0.1.1'
+        line: "127.0.1.1 {{ inventory_hostname }}"
+        state: present
+
 - name: Install and start Apache on web servers
-  hosts: targets:!bastion
+  hosts: targets:!"{{ TF_VAR_env_name }}-bastion"
   remote_user: ubuntu
   become: true
   gather_facts: false

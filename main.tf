@@ -113,4 +113,5 @@ module "instances" {
   distribution  = var.instance_distribution
   size          = var.instance_size
   associate_public_ip = true
+  index         = count.index + 1
 }

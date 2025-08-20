@@ -7,7 +7,7 @@ resource "aws_instance" "this" {
   key_name                    = var.key_name
 
   tags = {
-    Name         = "${var.env_name}-${var.role}"
+    Name         = "${var.env_name}-${var.role}-${var.index}"
     Environment  = var.env_name
     Role         = var.role
     Distribution = var.distribution

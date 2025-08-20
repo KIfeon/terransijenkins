@@ -69,12 +69,14 @@ pipeline {
                 terraform output -json > tf_outputs.json
                 bastion_ip=$(jq -r .bastion_public_ip.value tf_outputs.json)
                 instance_ips=$(jq -r .lab_public_ips.value[] tf_outputs.json)
+                role_lower=$(echo "$TF_VAR_instance_role" | tr '[:upper:]' '[:lower:]')
+                host_base="${TF_VAR_env_name}-${role_lower}"
                 echo "[targets]" > ansible_inventory.ini
-                echo "bastion ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
+                echo "${TF_VAR_env_name}-bastion ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
                 i=1
                 for ip in $instance_ips; do
                   if [ "$ip" != "null" ] && [ -n "$ip" ]; then
-                    echo "instance$i ansible_host=$ip ansible_user=ubuntu" >> ansible_inventory.ini
+                    echo "${host_base}-${i} ansible_host=$ip ansible_user=ubuntu" >> ansible_inventory.ini
                     i=$((i+1))
                   fi
                 done
