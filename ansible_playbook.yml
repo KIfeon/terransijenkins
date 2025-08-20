@@ -26,3 +26,45 @@
         owner: ubuntu
         group: ubuntu
         mode: '0600'
+
+- name: Install and start Apache on web servers
+  hosts: targets:!bastion
+  remote_user: ubuntu
+  become: true
+  gather_facts: false
+  serial: 1
+  pre_tasks:
+    - name: Wait for SSH to be available
+      wait_for_connection:
+        timeout: 300
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install Apache
+      apt:
+        name: apache2
+        state: present
+
+    - name: Ensure Apache is running and enabled
+      service:
+        name: apache2
+        state: started
+        enabled: yes
+
+    - name: Simple index page
+      copy:
+        dest: /var/www/html/index.html
+        content: |
+          <html>
+          <head><title>Lab Web Server</title></head>
+          <body>
+          <h1>Apache is up on {{ inventory_hostname }}</h1>
+          </body>
+          </html>
+        owner: root
+        group: root
+        mode: '0644'
