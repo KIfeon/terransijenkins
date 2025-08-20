@@ -1,0 +1,20 @@
+---
+- name: Copy SSH private key to all instances
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure .ssh directory exists
+      file:
+        path: /home/ubuntu/.ssh
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0700'
+
+    - name: Copy lab_rsa.pem to ~/.ssh/
+      copy:
+        src: lab_rsa.pem
+        dest: /home/ubuntu/.ssh/lab_rsa.pem
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'

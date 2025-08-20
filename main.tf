@@ -106,7 +106,7 @@ module "instances" {
   ami           = var.selected_ami
   instance_type = var.instance_type
   subnet_id     = module.vpc.private_subnets[0]
-  sg_ids        = var.instance_role == "webserver" ? [aws_security_group.ssh.id, aws_security_group.web.id] : [aws_security_group.ssh.id]
+  sg_ids        = [aws_security_group.ssh.id, aws_security_group.web.id]
   key_name      = aws_key_pair.lab.key_name
   env_name      = var.env_name
   role          = var.instance_role
