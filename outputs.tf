@@ -24,10 +24,10 @@ output "ssh_public_key" {
 
 output "ssh_bastion_command" {
   description = "SSH command to connect to the bastion host"
-  value = "ssh -i lab_rsa.pem ubuntu@${module.bastion.public_ip}"
+  value = "ssh -i ~/.ssh/lab_rsa.pem ubuntu@${module.bastion.public_ip}"
 }
 
 output "ssh_instance_commands" {
   description = "SSH commands to connect to each instance from the bastion (use private IPs)"
-  value = [for ip in module.instances[*].private_ip : "ssh -i lab_rsa.pem ubuntu@${ip}"]
+  value = [for ip in module.instances[*].private_ip : "ssh -i ~/.ssh/lab_rsa.pem ubuntu@${ip}"]
 }
