@@ -1,9 +1,9 @@
 ---
 - name: Copy SSH private key to all instances
   hosts: targets
-  remote_user: ubuntu
+  remote_user: "{{ ansible_user | default('ubuntu') }}"
   become: true
-  gather_facts: false
+  gather_facts: true
   serial: 1
   pre_tasks:
     - name: Wait for SSH to be available
@@ -11,25 +11,29 @@
         timeout: 300
 
   tasks:
+    - name: Resolve home directory for user
+      set_fact:
+        user_home: "{{ ansible_env.HOME | default('/home/' + ansible_user) }}"
+
     - name: Ensure .ssh directory exists
       file:
-        path: /home/ubuntu/.ssh
+        path: "{{ user_home }}/.ssh"
         state: directory
-        owner: ubuntu
-        group: ubuntu
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: '0700'
 
     - name: Copy lab_rsa.pem to ~/.ssh/
       copy:
         src: lab_rsa.pem
-        dest: /home/ubuntu/.ssh/lab_rsa.pem
-        owner: ubuntu
-        group: ubuntu
+        dest: "{{ user_home }}/.ssh/lab_rsa.pem"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: '0600'
 
 - name: Set hostname to inventory name
   hosts: targets
-  remote_user: ubuntu
+  remote_user: "{{ ansible_user | default('ubuntu') }}"
   become: true
   gather_facts: true
   serial: 1
@@ -46,10 +50,10 @@
         state: present
 
 - name: Install and start Apache on web servers
-  hosts: targets:!"{{ TF_VAR_env_name }}-bastion"
-  remote_user: ubuntu
+  hosts: webservers
+  remote_user: "{{ ansible_user | default('ubuntu') }}"
   become: true
-  gather_facts: false
+  gather_facts: true
   serial: 1
   pre_tasks:
     - name: Wait for SSH to be available
@@ -57,21 +61,37 @@
         timeout: 300
 
   tasks:
-    - name: Update apt cache
+    - name: Update package metadata (Debian/Ubuntu)
       apt:
         update_cache: yes
         cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
 
-    - name: Install Apache
+    - name: Install Apache (Debian/Ubuntu)
       apt:
         name: apache2
         state: present
+      when: ansible_os_family == 'Debian'
 
-    - name: Ensure Apache is running and enabled
+    - name: Install Apache (Amazon Linux)
+      package:
+        name: httpd
+        state: present
+      when: ansible_os_family in ['RedHat', 'Amazon']
+
+    - name: Ensure Apache is running and enabled (Debian/Ubuntu)
       service:
         name: apache2
         state: started
         enabled: yes
+      when: ansible_os_family == 'Debian'
+
+    - name: Ensure Apache is running and enabled (Amazon Linux)
+        service:
+          name: httpd
+          state: started
+          enabled: yes
+      when: ansible_os_family in ['RedHat', 'Amazon']
 
     - name: Simple index page
       copy:

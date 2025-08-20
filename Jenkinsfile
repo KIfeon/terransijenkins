@@ -5,7 +5,7 @@ pipeline {
         string(name: 'ENV_NAME', defaultValue: 'lab-demo', description: 'Nom de l environnement Lab')
         choice(name: 'INSTANCE_COUNT', choices: ['1','2','3','4','5'], description: 'Nombre d instances')
         choice(name: 'INSTANCE_ROLE', choices: ['webserver','db','generic'], description: 'Rôle')
-        choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','centos'], description: 'Distribution')
+        choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','amazonlinux'], description: 'Distribution')
         choice(name: 'INSTANCE_SIZE', choices: ['small','medium','large'], description: 'Puissance')
         choice(name: 'ACTION', choices: ['deploy','destroy'], description: 'Déployer ou Nettoyer ?')
     }
@@ -72,12 +72,20 @@ pipeline {
                 instance_ips=$(jq -r .lab_public_ips.value[] tf_outputs.json)
                 role_lower=$(echo "$TF_VAR_instance_role" | tr '[:upper:]' '[:lower:]')
                 host_base="${TF_VAR_env_name}-${role_lower}"
+                # Pick SSH user by distro for instances
+                case "$TF_VAR_instance_distribution" in
+                  amazonlinux) inst_user=ec2-user ;;
+                  debian) inst_user=admin ;;
+                  *) inst_user=ubuntu ;;
+                esac
                 echo "[targets]" > ansible_inventory.ini
                 echo "${TF_VAR_env_name}-bastion ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
+                echo "" >> ansible_inventory.ini
+                echo "[webservers]" >> ansible_inventory.ini
                 i=1
                 for ip in $instance_ips; do
                   if [ "$ip" != "null" ] && [ -n "$ip" ]; then
-                    echo "${host_base}-${i} ansible_host=$ip ansible_user=ubuntu" >> ansible_inventory.ini
+                    echo "${host_base}-${i} ansible_host=$ip ansible_user=$inst_user" >> ansible_inventory.ini
                     i=$((i+1))
                   fi
                 done

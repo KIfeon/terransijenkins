@@ -100,10 +100,18 @@ module "bastion" {
   env_name      = var.env_name
 }
 
+locals {
+  distro_ami_map = {
+    ubuntu      = "ami-053b0d53c279acc90" # Ubuntu 22.04 us-east-1
+    amazonlinux = "ami-0fe630eb857a6ec83" # Amazon Linux 2023 us-east-1 (verify)
+    debian      = "ami-06e52d23e45258b91" # Debian 12 us-east-1 (example)
+  }
+}
+
 module "instances" {
   source        = "./modules/instance"
   count         = var.instance_count
-  ami           = var.selected_ami
+  ami           = lookup(local.distro_ami_map, var.instance_distribution, var.selected_ami)
   instance_type = var.instance_type
   subnet_id     = module.vpc.public_subnets[0]
   sg_ids        = var.instance_role == "webserver" ? [aws_security_group.ssh.id, aws_security_group.web.id] : [aws_security_group.ssh.id]
