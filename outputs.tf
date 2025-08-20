@@ -31,3 +31,13 @@ output "ssh_instance_commands" {
   description = "SSH commands to connect to each instance from the bastion (use private IPs)"
   value = [for ip in module.instances[*].private_ip : "ssh -i ~/.ssh/lab_rsa.pem ubuntu@${ip}"]
 }
+
+output "chosen_instance_distribution" {
+  description = "The selected instance distribution"
+  value       = var.instance_distribution
+}
+
+output "lab_instance_amis" {
+  description = "AMI IDs used for lab instances"
+  value       = [for i in module.instances[*] : i.ami_id]
+}
