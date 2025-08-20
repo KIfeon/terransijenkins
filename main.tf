@@ -92,7 +92,7 @@ resource "aws_security_group" "web" {
 
 module "bastion" {
   source        = "./modules/bastion"
-  ami           = data.aws_ami.ubuntu.id
+  ami           = lookup(local.distro_ami_map, var.instance_distribution, data.aws_ami.ubuntu.id)
   instance_type = var.bastion_instance_type
   subnet_id     = module.vpc.public_subnets[0]
   sg_ids        = [aws_security_group.ssh.id]

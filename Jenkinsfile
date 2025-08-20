@@ -72,14 +72,14 @@ pipeline {
                 instance_ips=$(jq -r .lab_public_ips.value[] tf_outputs.json)
                 role_lower=$(echo "$TF_VAR_instance_role" | tr '[:upper:]' '[:lower:]')
                 host_base="${TF_VAR_env_name}-${role_lower}"
-                # Pick SSH user by distro for instances
+                # Pick SSH user by distro for instances and bastion
                 case "$TF_VAR_instance_distribution" in
-                  amazonlinux) inst_user=ec2-user ;;
-                  debian) inst_user=admin ;;
-                  *) inst_user=ubuntu ;;
+                  amazonlinux) inst_user=ec2-user ; bastion_user=ec2-user ;;
+                  debian) inst_user=admin ; bastion_user=admin ;;
+                  *) inst_user=ubuntu ; bastion_user=ubuntu ;;
                 esac
                 echo "[targets]" > ansible_inventory.ini
-                echo "${TF_VAR_env_name}-bastion ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
+                echo "${TF_VAR_env_name}-bastion ansible_host=$bastion_ip ansible_user=$bastion_user" >> ansible_inventory.ini
                 echo "" >> ansible_inventory.ini
                 echo "[webservers]" >> ansible_inventory.ini
                 i=1
