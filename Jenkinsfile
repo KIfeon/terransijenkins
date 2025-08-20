@@ -17,7 +17,7 @@ pipeline {
         TF_VAR_instance_distribution = "${params.INSTANCE_DISTRO}"
         TF_VAR_instance_size         = "${params.INSTANCE_SIZE}"
         TF_ACTION                    = "${params.ACTION}"
-        TF_DIR                       = './terraform'
+        TF_DIR                       = './'
     }
 
     stages {
