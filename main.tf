@@ -92,7 +92,7 @@ resource "aws_security_group" "web" {
 
 module "bastion" {
   source        = "./modules/bastion"
-  ami           = var.bastion_ami
+  ami           = data.aws_ami.ubuntu.id
   instance_type = var.bastion_instance_type
   subnet_id     = module.vpc.public_subnets[0]
   sg_ids        = [aws_security_group.ssh.id]
@@ -100,11 +100,39 @@ module "bastion" {
   env_name      = var.env_name
 }
 
+# AMI lookups by distribution
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+}
+
+data "aws_ami" "amazonlinux" {
+  most_recent = true
+  owners      = ["137112412989"] # Amazon Linux
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+}
+
+data "aws_ami" "debian" {
+  most_recent = true
+  owners      = ["136693071363"] # Debian
+  filter {
+    name   = "name"
+    values = ["debian-12-amd64-*"]
+  }
+}
+
 locals {
   distro_ami_map = {
-    ubuntu      = "ami-053b0d53c279acc90" # Ubuntu 22.04 us-east-1
-    amazonlinux = "ami-0fe630eb857a6ec83" # Amazon Linux 2023 us-east-1 (verify)
-    debian      = "ami-06e52d23e45258b91" # Debian 12 us-east-1 (example)
+    ubuntu      = data.aws_ami.ubuntu.id
+    amazonlinux = data.aws_ami.amazonlinux.id
+    debian      = data.aws_ami.debian.id
   }
 }
 
