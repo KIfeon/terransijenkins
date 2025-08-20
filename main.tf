@@ -44,13 +44,59 @@ module "vpc" {
   }
 }
 
+# SECURITY GROUPS
+resource "aws_security_group" "ssh" {
+  name        = "${var.env_name}-ssh"
+  description = "Allow SSH"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_security_group" "web" {
+  name        = "${var.env_name}-web"
+  description = "Allow HTTP/HTTPS"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
 module "bastion" {
   source        = "./modules/bastion"
   ami           = var.bastion_ami
   instance_type = var.bastion_instance_type
   subnet_id     = module.vpc.public_subnets[0]
-  sg_ids        = [module.vpc.default_security_group_id]
-  key_name      = aws_key_pair.lab.key_name      # ICI
+  sg_ids        = [aws_security_group.ssh.id]
+  key_name      = aws_key_pair.lab.key_name
   env_name      = var.env_name
 }
 
@@ -60,10 +106,11 @@ module "instances" {
   ami           = var.selected_ami
   instance_type = var.instance_type
   subnet_id     = module.vpc.private_subnets[0]
-  sg_ids        = [module.vpc.default_security_group_id]
-  key_name      = aws_key_pair.lab.key_name      # ICI
+  sg_ids        = var.instance_role == "webserver" ? [aws_security_group.ssh.id, aws_security_group.web.id] : [aws_security_group.ssh.id]
+  key_name      = aws_key_pair.lab.key_name
   env_name      = var.env_name
   role          = var.instance_role
   distribution  = var.instance_distribution
   size          = var.instance_size
+  associate_public_ip = var.instance_role == "webserver" ? true : false
 }
