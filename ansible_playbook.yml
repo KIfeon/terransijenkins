@@ -1,7 +1,13 @@
 ---
 - name: Copy SSH private key to all instances
-  hosts: all
+  hosts: bastion_host,webservers
   become: true
+  gather_facts: false
+  pre_tasks:
+    - name: Wait for SSH to be available
+      wait_for_connection:
+        timeout: 120
+
   tasks:
     - name: Ensure .ssh directory exists
       file:

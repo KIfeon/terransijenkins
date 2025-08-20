@@ -67,22 +67,32 @@ pipeline {
                 sh '''
                 terraform output -json > tf_outputs.json
                 bastion_ip=$(jq -r .bastion_public_ip.value tf_outputs.json)
-                instance_ips=$(jq -r .lab_private_ips.value[] tf_outputs.json)
-                echo "[bastion]" > ansible_inventory.ini
-                echo "bastion ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
+                instance_ips=$(jq -r .lab_public_ips.value[] tf_outputs.json)
+                echo "[bastion_host]" > ansible_inventory.ini
+                echo "bastion_host ansible_host=$bastion_ip ansible_user=ubuntu" >> ansible_inventory.ini
                 echo "" >> ansible_inventory.ini
                 echo "[webservers]" >> ansible_inventory.ini
                 i=1
                 for ip in $instance_ips; do
-                  echo "instance$i ansible_host=$ip ansible_user=ubuntu" >> ansible_inventory.ini
-                  i=$((i+1))
+                  if [ "$ip" != "null" ] && [ -n "$ip" ]; then
+                    echo "web$i ansible_host=$ip ansible_user=ubuntu" >> ansible_inventory.ini
+                    i=$((i+1))
+                  fi
                 done
+                '''
+            }
+        }
+        stage('Write Ansible SSH Key') {
+            steps {
+                sh '''
+                terraform output -raw ssh_private_key_pem > lab_rsa.pem
+                chmod 600 lab_rsa.pem
                 '''
             }
         }
         stage('Ansible - Copy SSH Key') {
             steps {
-                sh 'ansible-playbook -i ansible_inventory.ini ansible_playbook.yml --private-key lab_rsa.pem'
+                sh 'ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible_inventory.ini ansible_playbook.yml --private-key lab_rsa.pem --timeout 60'
             }
         }
         stage('Afficher infos Lab & clé SSH') {

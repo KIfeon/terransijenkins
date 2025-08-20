@@ -6,6 +6,11 @@ output "lab_private_ips" {
   value = [for i in module.instances[*].private_ip : i]
 }
 
+output "lab_public_ips" {
+  description = "Public IPs of lab instances (web servers have public IPs)"
+  value       = [for i in module.instances[*] : i.public_ip]
+}
+
 output "ssh_private_key_pem" {
   description = "Clé privée SSH générée, à utiliser pour accéder à toutes les instances"
   value       = tls_private_key.lab_ssh.private_key_pem
