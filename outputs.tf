@@ -50,3 +50,8 @@ output "alb_dns_name" {
   description = "Public DNS name of the Application Load Balancer"
   value       = try(aws_lb.web.dns_name, null)
 }
+
+output "alb_http_url" {
+  description = "HTTP URL to reach the reverse proxy"
+  value       = try("http://${aws_lb.web.dns_name}", null)
+}
