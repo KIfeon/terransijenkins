@@ -30,12 +30,15 @@ pipeline {
                     script {
                         sh '''
                         if terraform workspace list | grep -E -q "^[*] ${TF_VAR_env_name}$|^  ${TF_VAR_env_name}$"; then
-                          terraform destroy -auto-approve \
-                            -var="env_name=$TF_VAR_env_name"
+                          echo "Workspace ${TF_VAR_env_name} found; destroying that workspace."
+                          terraform workspace select "$TF_VAR_env_name"
+                          terraform destroy -auto-approve -var="env_name=$TF_VAR_env_name"
                           terraform workspace select default
                           terraform workspace delete "$TF_VAR_env_name" || true
                         else
-                          echo "Workspace $TF_VAR_env_name does not exist; skipping destroy."
+                          echo "Workspace ${TF_VAR_env_name} not found - attempting destroy from default workspace."
+                          terraform workspace select default || terraform workspace new default
+                          terraform destroy -auto-approve -var="env_name=$TF_VAR_env_name" || true
                         fi
                         '''
                     }
