@@ -81,7 +81,12 @@ pipeline {
                 echo "[targets]" > ansible_inventory.ini
                 echo "${TF_VAR_env_name}-bastion ansible_host=$bastion_ip ansible_user=$bastion_user" >> ansible_inventory.ini
                 echo "" >> ansible_inventory.ini
-                echo "[webservers]" >> ansible_inventory.ini
+                case "$TF_VAR_instance_role" in
+                  db) group_name="dbservers" ;;
+                  webserver) group_name="webservers" ;;
+                  *) group_name="generic" ;;
+                esac
+                echo "[$group_name]" >> ansible_inventory.ini
                 i=1
                 for ip in $instance_ips; do
                   if [ "$ip" != "null" ] && [ -n "$ip" ]; then

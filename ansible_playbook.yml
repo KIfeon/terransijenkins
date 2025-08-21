@@ -105,3 +105,56 @@
         owner: root
         group: root
         mode: '0644'
+
+---
+- name: Install and initialize database on DB servers
+  hosts: dbservers
+  remote_user: "{{ ansible_user | default('ubuntu') }}"
+  become: true
+  gather_facts: true
+  serial: 1
+  pre_tasks:
+    - name: Wait for SSH to be available
+      wait_for_connection:
+        timeout: 300
+
+  tasks:
+    - name: Update package metadata (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+
+    - name: Install MariaDB server (Debian/Ubuntu)
+      apt:
+        name: mariadb-server
+        state: present
+      when: ansible_os_family == 'Debian'
+
+    - name: Install MariaDB server (Amazon Linux/RedHat)
+      package:
+        name: mariadb-server
+        state: present
+      when: ansible_os_family in ['RedHat', 'Amazon']
+
+    - name: Ensure MariaDB is running and enabled (Debian/Ubuntu)
+      service:
+        name: mariadb
+        state: started
+        enabled: yes
+      when: ansible_os_family == 'Debian'
+
+    - name: Ensure MariaDB is running and enabled (Amazon Linux/RedHat)
+      service:
+        name: mariadb
+        state: started
+        enabled: yes
+      when: ansible_os_family in ['RedHat', 'Amazon']
+
+    - name: Create database 'labdb' (Debian/Ubuntu)
+      command: mysql -u root -e "CREATE DATABASE IF NOT EXISTS labdb;"
+      when: ansible_os_family == 'Debian'
+
+    - name: Create database 'labdb' (Amazon Linux/RedHat)
+      command: mysql -u root -e "CREATE DATABASE IF NOT EXISTS labdb;"
+      when: ansible_os_family in ['RedHat', 'Amazon']
