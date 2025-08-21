@@ -105,8 +105,6 @@
         owner: root
         group: root
         mode: '0644'
-
----
 - name: Install and initialize database on DB servers
   hosts: dbservers
   remote_user: "{{ ansible_user | default('ubuntu') }}"
