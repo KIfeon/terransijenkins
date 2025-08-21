@@ -1,0 +1,47 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'ENV_NAME', defaultValue: 'lab-demo', description: 'Nom du lab à nettoyer (workspace Terraform)')
+    }
+
+    environment {
+        TF_VAR_env_name = "${params.ENV_NAME}"
+        TF_DIR          = './'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+        stage('Terraform Init + Workspace') {
+            steps {
+                dir("${env.TF_DIR}") {
+                    sh '''
+                    terraform init
+                    terraform workspace select "$TF_VAR_env_name" || echo "Workspace not found; nothing to destroy."
+                    '''
+                }
+            }
+        }
+        stage('Destroy Lab Resources') {
+            steps {
+                dir("${env.TF_DIR}") {
+                    script {
+                        sh '''
+                        if terraform workspace list | grep -q "^* $TF_VAR_env_name$\|  $TF_VAR_env_name$"; then
+                          terraform destroy -auto-approve \
+                            -var="env_name=$TF_VAR_env_name"
+                          terraform workspace select default
+                          terraform workspace delete "$TF_VAR_env_name" || true
+                        else
+                          echo "Workspace $TF_VAR_env_name does not exist; skipping destroy."
+                        fi
+                        '''
+                    }
+                }
+            }
+        }
+    }
+    post { always { echo "Cleanup attempted for lab: ${params.ENV_NAME}" } }
+}

@@ -29,7 +29,10 @@ pipeline {
         stage('Terraform Init') {
             steps {
                 dir("${env.TF_DIR}") {
-                    sh 'terraform init'
+                    sh '''
+                    terraform init
+                    terraform workspace select "$TF_VAR_env_name" || terraform workspace new "$TF_VAR_env_name"
+                    '''
                 }
             }
         }
