@@ -32,9 +32,9 @@ module "vpc" {
   source             = "terraform-aws-modules/vpc/aws"
   name               = "${var.env_name}-vpc"
   cidr               = "10.0.0.0/16"
-  azs                = ["us-east-1a"]
-  public_subnets     = ["10.0.1.0/24"]
-  private_subnets    = ["10.0.2.0/24"]
+  azs                = ["us-east-1a", "us-east-1b"]
+  public_subnets     = ["10.0.1.0/24", "10.0.3.0/24"]
+  private_subnets    = ["10.0.2.0/24", "10.0.4.0/24"]
   enable_nat_gateway = false
   single_nat_gateway = false
 
@@ -141,7 +141,7 @@ module "instances" {
   count         = var.instance_count
   ami           = lookup(local.distro_ami_map, var.instance_distribution, var.selected_ami)
   instance_type = var.instance_type
-  subnet_id     = module.vpc.public_subnets[0]
+  subnet_id     = element(module.vpc.public_subnets, count.index % length(module.vpc.public_subnets))
   sg_ids        = var.instance_role == "webserver" ? [aws_security_group.ssh.id, aws_security_group.web.id] : [aws_security_group.ssh.id]
   key_name      = aws_key_pair.lab.key_name
   env_name      = var.env_name
@@ -150,4 +150,54 @@ module "instances" {
   size          = var.instance_size
   associate_public_ip = true
   index         = count.index + 1
+}
+
+# Application Load Balancer for web instances
+resource "aws_lb" "web" {
+  name               = "${var.env_name}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.web.id]
+  subnets            = module.vpc.public_subnets
+
+  enable_deletion_protection = false
+
+  tags = {
+    Environment = var.env_name
+  }
+}
+
+resource "aws_lb_target_group" "web" {
+  name     = "${var.env_name}-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = module.vpc.vpc_id
+
+  health_check {
+    path                = "/"
+    matcher             = "200-399"
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    interval            = 15
+    timeout             = 5
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.web.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.web.arn
+  }
+}
+
+# Attach every web instance to the target group
+resource "aws_lb_target_group_attachment" "web" {
+  count            = var.instance_role == "webserver" ? length(module.instances) : 0
+  target_group_arn = aws_lb_target_group.web.arn
+  target_id        = module.instances[count.index].instance_id
+  port             = 80
 }

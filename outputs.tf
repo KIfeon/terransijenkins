@@ -45,3 +45,8 @@ output "lab_instance_amis" {
   description = "AMI IDs used for lab instances"
   value       = [for i in module.instances[*] : i.ami_id]
 }
+
+output "alb_dns_name" {
+  description = "Public DNS name of the Application Load Balancer"
+  value       = try(aws_lb.web.dns_name, null)
+}
