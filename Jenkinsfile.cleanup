@@ -29,7 +29,7 @@ pipeline {
                 dir("${env.TF_DIR}") {
                     script {
                         sh '''
-                        if terraform workspace list | grep -q "^* $TF_VAR_env_name$\|  $TF_VAR_env_name$"; then
+                        if terraform workspace list | grep -E -q "^[*] ${TF_VAR_env_name}$|^  ${TF_VAR_env_name}$"; then
                           terraform destroy -auto-approve \
                             -var="env_name=$TF_VAR_env_name"
                           terraform workspace select default
