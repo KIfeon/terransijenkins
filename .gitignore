@@ -1,0 +1,68 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate.backup
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+
+# Ansible
+*.retry
+ansible.cfg
+hosts
+inventory/
+group_vars/
+host_vars/
+vault_pass.txt
+.ansible/
+ansible.log
+
+# Jenkins
+Jenkinsfile.bak
+jenkins_home/
+workspace/
+logs/
+*.log
+.jenkins/
+
+# General
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.tmp
+*.temp
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# SSH keys and sensitive files
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.pub
+known_hosts
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
