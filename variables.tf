@@ -6,6 +6,16 @@ variable "env_name" {
   description = "Nom de l'environnement"
 }
 
+variable "tf_state_bucket" {
+  description = "S3 bucket for Terraform state"
+  default     = null
+}
+
+variable "tf_state_region" {
+  description = "AWS region for Terraform state bucket"
+  default     = null
+}
+
 variable "instance_count" {
   type        = number
   default     = 2

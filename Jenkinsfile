@@ -8,6 +8,8 @@ pipeline {
         choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','amazonlinux'], description: 'Distribution')
         choice(name: 'INSTANCE_TYPE', choices: ['t3.nano','t3.micro','t3.medium'], description: 'Instance type')
         choice(name: 'ACTION', choices: ['deploy','destroy'], description: 'Déployer ou Nettoyer ?')
+        string(name: 'TF_STATE_BUCKET', defaultValue: '', description: 'S3 bucket for Terraform state (required)')
+        string(name: 'TF_STATE_REGION', defaultValue: 'us-east-1', description: 'Region for state bucket')
     }
 
     environment {
@@ -18,6 +20,8 @@ pipeline {
         TF_VAR_instance_type         = "${params.INSTANCE_TYPE}"
         TF_ACTION                    = "${params.ACTION}"
         TF_DIR                       = './'
+        TF_STATE_BUCKET              = "${params.TF_STATE_BUCKET}"
+        TF_STATE_REGION              = "${params.TF_STATE_REGION}"
     }
 
     stages {
@@ -30,8 +34,11 @@ pipeline {
             steps {
                 dir("${env.TF_DIR}") {
                     sh '''
-                    terraform init
-                    terraform workspace select "$TF_VAR_env_name" || terraform workspace new "$TF_VAR_env_name"
+                    test -n "$TF_STATE_BUCKET" || { echo "TF_STATE_BUCKET is required"; exit 1; }
+                    terraform init \
+                      -backend-config="bucket=$TF_STATE_BUCKET" \
+                      -backend-config="key=${TF_VAR_env_name}/terraform.tfstate" \
+                      -backend-config="region=$TF_STATE_REGION"
                     '''
                 }
             }
