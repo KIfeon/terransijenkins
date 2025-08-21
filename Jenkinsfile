@@ -6,7 +6,7 @@ pipeline {
         choice(name: 'INSTANCE_COUNT', choices: ['1','2','3','4','5'], description: 'Nombre d instances')
         choice(name: 'INSTANCE_ROLE', choices: ['webserver','db','generic'], description: 'Rôle')
         choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','amazonlinux'], description: 'Distribution')
-        choice(name: 'INSTANCE_SIZE', choices: ['small','medium','large'], description: 'Puissance')
+        choice(name: 'INSTANCE_TYPE', choices: ['t3.nano','t3.micro','t3.medium'], description: 'Instance type')
         choice(name: 'ACTION', choices: ['deploy','destroy'], description: 'Déployer ou Nettoyer ?')
     }
 
@@ -15,7 +15,7 @@ pipeline {
         TF_VAR_instance_count        = "${params.INSTANCE_COUNT}"
         TF_VAR_instance_role         = "${params.INSTANCE_ROLE}"
         TF_VAR_instance_distribution = "${params.INSTANCE_DISTRO}"
-        TF_VAR_instance_size         = "${params.INSTANCE_SIZE}"
+        TF_VAR_instance_type         = "${params.INSTANCE_TYPE}"
         TF_ACTION                    = "${params.ACTION}"
         TF_DIR                       = './'
     }
@@ -44,7 +44,7 @@ pipeline {
                                     -var='instance_count=$TF_VAR_instance_count' \
                                     -var='instance_role=$TF_VAR_instance_role' \
                                     -var='instance_distribution=$TF_VAR_instance_distribution' \
-                                    -var='instance_size=$TF_VAR_instance_size'
+                                    -var='instance_type=$TF_VAR_instance_type'
 
                                 terraform apply -auto-approve tfplan
                                 sleep 30
@@ -56,7 +56,7 @@ pipeline {
                                     -var='instance_count=$TF_VAR_instance_count' \
                                     -var='instance_role=$TF_VAR_instance_role' \
                                     -var='instance_distribution=$TF_VAR_instance_distribution' \
-                                    -var='instance_size=$TF_VAR_instance_size'
+                                    -var='instance_type=$TF_VAR_instance_type'
                             """
                         }
                     }

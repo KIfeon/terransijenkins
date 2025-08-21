@@ -26,10 +26,7 @@ variable "instance_distribution" {
   description = "Distribution"
 }
 
-variable "instance_size" {
-  default     = "small"
-  description = "Taille de la VM"
-}
+
 
 variable "selected_ami" {
   default     = "ami-053b0d53c279acc90" # Ubuntu 22.04 us-east-1 (Vérifie toujours la distribution ici)

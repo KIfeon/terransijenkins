@@ -147,7 +147,7 @@ module "instances" {
   env_name      = var.env_name
   role          = var.instance_role
   distribution  = var.instance_distribution
-  size          = var.instance_size
+  size          = var.instance_type
   associate_public_ip = true
   index         = count.index + 1
 }
