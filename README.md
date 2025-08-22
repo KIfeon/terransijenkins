@@ -403,7 +403,7 @@ rm -rf /var/lib/jenkins/terraform-states/ENV_NAME/
 
 ### Scripts utiles
 
-Le projet inclut `scripts/list-labs.sh` pour lister les environnements via AWS CLI.
+Les environnements sont listés automatiquement via les états Terraform stockés dans `/var/lib/jenkins/terraform-states/`.
 
 ## Support
 
