@@ -26,6 +26,27 @@ pipeline {
                 checkout scm
             }
         }
+
+            stage('Validate ENV_NAME') {
+        steps {
+            script {
+                // Autoriser seulement a-z, 0-9, - et longueur max 15
+                if (!params.ENV_NAME.matches('^[a-z0-9-]+$')) {
+                    error """
+    Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') contient des caractères non autorisés !
+    Utilisez uniquement des lettres minuscules (a-z), des chiffres (0-9) et le tiret (-).
+    """
+                }
+                if (params.ENV_NAME.length() > 15) {
+                    error """
+    Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') est trop long (${params.ENV_NAME.length()} caractères).
+    La longueur maximale autorisée est de 15 caractères.
+    """
+                }
+            }
+        }
+    }
+
         stage('Terraform Init') {
             steps {
                 dir("${env.TF_DIR}") {
@@ -52,15 +73,14 @@ pipeline {
                         } else {
                             sh """
                                 echo "=== Starting DESTROY for environment: $TF_VAR_env_name ==="
-                                
-                                # First, run terraform plan -destroy to see what will be destroyed
+
                                 terraform plan -destroy \
                                     -var='env_name=$TF_VAR_env_name' \
                                     -var='instance_count=$TF_VAR_instance_count' \
                                     -var='instance_role=$TF_VAR_instance_role' \
                                     -var='instance_distribution=$TF_VAR_instance_distribution' \
                                     -var='instance_type=$TF_VAR_instance_type'
-                                
+
                                 echo "=== Executing DESTROY ==="
                                 terraform destroy -auto-approve \
                                     -var='env_name=$TF_VAR_env_name' \
@@ -68,7 +88,7 @@ pipeline {
                                     -var='instance_role=$TF_VAR_instance_role' \
                                     -var='instance_distribution=$TF_VAR_instance_distribution' \
                                     -var='instance_type=$TF_VAR_instance_type'
-                                
+
                                 echo "=== DESTROY completed for environment: $TF_VAR_env_name ==="
                             """
                         }
@@ -85,7 +105,6 @@ pipeline {
                 instance_ips=$(jq -r .lab_public_ips.value[] tf_outputs.json)
                 role_lower=$(echo "$TF_VAR_instance_role" | tr '[:upper:]' '[:lower:]')
                 host_base="${TF_VAR_env_name}-${role_lower}"
-                # Pick SSH user by distro for instances and bastion
                 case "$TF_VAR_instance_distribution" in
                   amazonlinux) inst_user=ec2-user ; bastion_user=ec2-user ;;
                   debian) inst_user=admin ; bastion_user=admin ;;
@@ -155,17 +174,15 @@ pipeline {
                     echo "=== Cleaning up generated files for environment: ${params.ENV_NAME} ==="
                 }
                 sh '''
-                    # Remove generated files to ensure clean state
                     rm -f tf_outputs.json
                     rm -f ansible_inventory.ini
                     rm -f lab_rsa.pem
                     rm -f tfplan
-                    
                     echo "Generated files cleaned up successfully"
                 '''
             }
         }
-        
+
         stage('Verify Destroy Completion') {
             when { expression { env.TF_ACTION == "destroy" } }
             steps {
@@ -174,7 +191,6 @@ pipeline {
                         echo "=== Verifying all resources destroyed for environment: ${params.ENV_NAME} ==="
                     }
                     sh '''
-                        # Check if there are any remaining resources in state
                         if ! terraform show | grep -q "resource"; then
                             echo "SUCCESS: No resources found in terraform state"
                         else
@@ -182,8 +198,7 @@ pipeline {
                             terraform show
                             exit 1
                         fi
-                        
-                        # Optional: Also check if state file exists and is empty/minimal
+
                         if [ -f terraform.tfstate ]; then
                             echo "State file contents:"
                             cat terraform.tfstate | jq '.resources // []' | head -10
@@ -192,7 +207,7 @@ pipeline {
                 }
             }
         }
-        
+
         // Optionnel : Lancer Ansible après déploiement (adapter selon ton setup)
         // stage('Configuration Ansible') {
         //     when { expression { env.TF_ACTION == "deploy" } }
@@ -210,7 +225,7 @@ pipeline {
                 echo "========== RÉSUMÉ DES OPÉRATIONS =========="
                 echo "Environnement : ${params.ENV_NAME}"
                 echo "Action : ${params.ACTION}"
-                
+
                 if (params.ACTION == "destroy") {
                     echo "=== RÉSUMÉ DE LA DESTRUCTION ==="
                     echo "Toutes les ressources pour l'environnement '${params.ENV_NAME}' ont été détruites :"
@@ -235,7 +250,7 @@ pipeline {
                 }
             }
         }
-        failure {
+                failure {
             script {
                 if (params.ACTION == "destroy") {
                     echo "❌ ÉCHEC DE LA DESTRUCTION pour l'environnement '${params.ENV_NAME}'"
