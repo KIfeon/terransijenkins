@@ -1,22 +1,76 @@
+// REQUIRES: Active Choices Plugin in Jenkins
+// Install from: Manage Jenkins > Manage Plugins > Available > "Active Choices"
+
 pipeline {
     agent any
 
     parameters {
-        // This will be populated dynamically by the discovery stage
-        choice(
-            name: 'LAB_TO_DESTROY', 
-            choices: ['SCAN_FOR_LABS'], 
-            description: 'Choisir le lab à détruire (sera rempli automatiquement)'
+        // Dynamic lab selection using Active Choices Plugin
+        activeChoice(
+            name: 'LAB_TO_DESTROY',
+            description: 'Choisir le lab à détruire',
+            choiceType: 'SINGLE_SELECT',
+            randomName: 'choice-parameter-lab-selection',
+            script: [
+                $class: 'GroovyScript',
+                fallbackScript: [
+                    classpath: [], 
+                    sandbox: false, 
+                    script: 'return ["Erreur: Impossible de charger les labs", "Vérifiez la configuration AWS"]'
+                ],
+                script: [
+                    classpath: [], 
+                    sandbox: false, 
+                    script: '''
+                        // Script Groovy pour découvrir les labs dynamiquement
+                        def command = """
+                            # Découvrir les labs via VPC tags
+                            labs_vpcs=\$(aws ec2 describe-vpcs --region us-east-1 --filters "Name=tag:Environment,Values=*" --query 'Vpcs[?contains(Tags[?Key==\`Environment\`].Value, \`lab\`)].Tags[?Key==\`Environment\`].Value' --output text 2>/dev/null | tr '\\t' '\\n' | sort -u | grep -v '^\$' || true)
+                            
+                            # Découvrir les labs via clés SSH
+                            labs_keys=\$(aws ec2 describe-key-pairs --region us-east-1 --query 'KeyPairs[?contains(KeyName, \`lab\`)].KeyName' --output text 2>/dev/null | tr '\\t' '\\n' | sed 's/-key\$//' | sort -u | grep -v '^\$' || true)
+                            
+                            # Combiner et dédupliquer
+                            all_labs=\$(printf "%s\\n%s" "\$labs_vpcs" "\$labs_keys" | sort -u | grep -v '^\$' || true)
+                            
+                            if [ -n "\$all_labs" ]; then
+                                echo "\$all_labs"
+                            else
+                                echo "AUCUN_LAB_TROUVE"
+                            fi
+                        """
+                        
+                        def proc = command.execute()
+                        proc.waitFor()
+                        def labs = proc.text.trim().split('\\n')
+                        
+                        def result = []
+                        if (labs[0] == "AUCUN_LAB_TROUVE" || labs[0] == "") {
+                            result.add("❌ Aucun lab trouvé")
+                            result.add("🔄 Actualiser la page pour re-scanner")
+                        } else {
+                            result.add("🔍 Sélectionnez un lab à détruire:")
+                            for (lab in labs) {
+                                if (lab?.trim()) {
+                                    result.add("🧪 " + lab.trim())
+                                }
+                            }
+                        }
+                        return result
+                    '''
+                ]
+            ]
+        )
+        
+        booleanParam(
+            name: 'DRY_RUN', 
+            defaultValue: true, 
+            description: '🧪 Mode test - affiche les ressources sans les supprimer'
         )
         booleanParam(
             name: 'FORCE_DESTROY', 
             defaultValue: false, 
-            description: 'Forcer la destruction même si des ressources persistent'
-        )
-        booleanParam(
-            name: 'DRY_RUN', 
-            defaultValue: true, 
-            description: 'Mode test - affiche les ressources qui seraient détruites sans les supprimer'
+            description: '🔨 Forcer la destruction même si des ressources persistent'
         )
     }
 
@@ -26,139 +80,74 @@ pipeline {
     }
 
     stages {
-        stage('Discover Existing Labs') {
+        stage('Validate Selection') {
             steps {
                 script {
-                    echo "=== RECHERCHE DES LABS EXISTANTS ==="
+                    echo "=== VALIDATION DE LA SÉLECTION ==="
                     
-                    // Découvrir les labs via les tags AWS
-                    def labsFound = sh(
-                        script: '''
-                            # Rechercher les VPCs avec les tags Environment
-                            aws ec2 describe-vpcs \
-                                --filters "Name=tag:Environment,Values=*" \
-                                --query 'Vpcs[?contains(Tags[?Key==`Environment`].Value, `lab`)].Tags[?Key==`Environment`].Value' \
-                                --output text | tr '\\t' '\\n' | sort -u | grep -v '^$' || echo "AUCUN_LAB_TROUVE"
-                        ''',
-                        returnStdout: true
-                    ).trim()
-
-                    if (labsFound == "AUCUN_LAB_TROUVE" || labsFound == "") {
-                        echo "❌ Aucun lab trouvé dans AWS"
-                        
-                        // Aussi chercher via les clés SSH AWS
-                        def sshKeys = sh(
-                            script: '''
-                                aws ec2 describe-key-pairs \
-                                    --query 'KeyPairs[?contains(KeyName, `lab`)].KeyName' \
-                                    --output text | tr '\\t' '\\n' | sort -u | grep -v '^$' || echo "AUCUNE_CLE_TROUVEE"
-                            ''',
-                            returnStdout: true
-                        ).trim()
-
-                        if (sshKeys != "AUCUNE_CLE_TROUVEE" && sshKeys != "") {
-                            echo "🔑 Clés SSH trouvées (labs potentiels) : ${sshKeys}"
-                            
-                            // Extraire les noms d'environnement des clés SSH
-                            def labsFromKeys = sh(
-                                script: '''
-                                    aws ec2 describe-key-pairs \
-                                        --query 'KeyPairs[?contains(KeyName, `lab`)].KeyName' \
-                                        --output text | tr '\\t' '\\n' | sed 's/-key$//' | sort -u
-                                ''',
-                                returnStdout: true
-                            ).trim()
-                            
-                            env.DISCOVERED_LABS = labsFromKeys
-                        } else {
-                            error("❌ Aucun lab trouvé via les VPCs ou les clés SSH")
-                        }
-                    } else {
-                        echo "✅ Labs trouvés : ${labsFound}"
-                        env.DISCOVERED_LABS = labsFound
+                    def selectedLab = params.LAB_TO_DESTROY
+                    echo "Sélection: ${selectedLab}"
+                    
+                    // Extraire le nom du lab (enlever les emojis)
+                    def labName = selectedLab.replaceAll(/^🧪\s*/, '').trim()
+                    
+                    if (selectedLab.contains("❌ Aucun lab") || selectedLab.contains("🔄 Actualiser")) {
+                        error("❌ Aucun lab sélectionné ou aucun lab disponible. Actualisez la page.")
                     }
-
-                    // Afficher les détails des labs trouvés
-                    def labs = env.DISCOVERED_LABS.split('\n')
-                    echo "=== LABS DÉCOUVERTS ==="
-                    for (lab in labs) {
-                        if (lab?.trim()) {
-                            echo "🧪 Lab: ${lab}"
-                            
-                            // Obtenir plus de détails sur chaque lab
-                            def labDetails = sh(
-                                script: """
-                                    echo "--- Détails pour ${lab} ---"
-                                    
-                                    # VPC
-                                    vpc_id=\$(aws ec2 describe-vpcs --filters "Name=tag:Environment,Values=${lab}" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "N/A")
-                                    echo "VPC ID: \$vpc_id"
-                                    
-                                    # Instances EC2
-                                    instances=\$(aws ec2 describe-instances --filters "Name=tag:Environment,Values=${lab}" "Name=instance-state-name,Values=running,stopped,stopping,pending" --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null || echo "Aucune")
-                                    echo "Instances: \$instances"
-                                    
-                                    # Load Balancer
-                                    alb=\$(aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, '${lab}')].LoadBalancerName" --output text 2>/dev/null || echo "Aucun")
-                                    echo "ALB: \$alb"
-                                    
-                                    # Clé SSH
-                                    key=\$(aws ec2 describe-key-pairs --key-names "${lab}-key" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null || echo "Aucune")
-                                    echo "Clé SSH: \$key"
-                                """,
-                                returnStdout: true
-                            )
-                            echo labDetails
-                        }
+                    
+                    if (selectedLab.contains("🔍 Sélectionnez")) {
+                        error("❌ Veuillez sélectionner un lab spécifique, pas l'en-tête.")
                     }
+                    
+                    echo "✅ Lab validé: ${labName}"
+                    env.VALIDATED_LAB = labName
                 }
             }
         }
 
-        stage('Validate Lab Selection') {
-            when { 
-                expression { 
-                    return params.LAB_TO_DESTROY != 'SCAN_FOR_LABS' && params.LAB_TO_DESTROY != null 
-                } 
-            }
+        stage('Show Lab Details') {
             steps {
                 script {
-                    echo "=== VALIDATION DU LAB SÉLECTIONNÉ ==="
-                    echo "Lab à détruire: ${params.LAB_TO_DESTROY}"
+                    echo "=== DÉTAILS DU LAB ==="
+                    echo "🎯 Lab sélectionné: ${env.VALIDATED_LAB}"
+                    echo "🔄 Mode: ${params.DRY_RUN ? 'SIMULATION (DRY RUN)' : 'DESTRUCTION RÉELLE'}"
+                    echo "💥 Force: ${params.FORCE_DESTROY ? 'Activé' : 'Désactivé'}"
                     
-                    def selectedLab = params.LAB_TO_DESTROY
-                    
-                    // Vérifier que le lab existe réellement
-                    def labExists = sh(
+                    def labDetails = sh(
                         script: """
-                            # Vérifier via VPC ou clé SSH
-                            vpc_exists=\$(aws ec2 describe-vpcs --filters "Name=tag:Environment,Values=${selectedLab}" --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
-                            key_exists=\$(aws ec2 describe-key-pairs --key-names "${selectedLab}-key" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null)
+                            lab="${env.VALIDATED_LAB}"
+                            echo "=== RESSOURCES ACTUELLES POUR: \$lab ==="
                             
-                            if [ "\$vpc_exists" != "None" ] && [ "\$vpc_exists" != "" ] || [ "\$key_exists" != "None" ] && [ "\$key_exists" != "" ]; then
-                                echo "EXISTS"
-                            else
-                                echo "NOT_EXISTS"
-                            fi
+                            # VPC
+                            vpc_id=\$(aws ec2 describe-vpcs --filters "Name=tag:Environment,Values=\$lab" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "N/A")
+                            echo "VPC ID: \$vpc_id"
+                            
+                            # Instances EC2
+                            echo "INSTANCES EC2:"
+                            aws ec2 describe-instances \\
+                                --filters "Name=tag:Environment,Values=\$lab" "Name=instance-state-name,Values=running,stopped,stopping,pending" \\
+                                --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,Tags[?Key==\`Name\`].Value|[0]]' \\
+                                --output table || echo "   Aucune instance trouvée"
+                            
+                            # Load Balancers
+                            echo "LOAD BALANCERS:"
+                            aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, '\$lab')].[LoadBalancerName,State.Code]" --output table || echo "   Aucun ALB trouvé"
+                            
+                            # Clé SSH
+                            key_exists=\$(aws ec2 describe-key-pairs --key-names "\$lab-key" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null || echo "Aucune")
+                            echo "Clé SSH: \$key_exists"
                         """,
                         returnStdout: true
-                    ).trim()
-
-                    if (labExists != "EXISTS") {
-                        error("❌ Le lab '${selectedLab}' n'existe pas ou a déjà été détruit")
-                    }
-
-                    echo "✅ Lab '${selectedLab}' confirmé pour destruction"
-                    env.VALIDATED_LAB = selectedLab
+                    )
+                    
+                    echo labDetails
                 }
             }
         }
 
         stage('Show Destruction Plan') {
             when { 
-                expression { 
-                    return params.LAB_TO_DESTROY != 'SCAN_FOR_LABS' && env.VALIDATED_LAB != null 
-                } 
+                expression { env.VALIDATED_LAB != null } 
             }
             steps {
                 script {
@@ -212,11 +201,7 @@ pipeline {
 
         stage('Terraform Destroy') {
             when { 
-                expression { 
-                    return params.LAB_TO_DESTROY != 'SCAN_FOR_LABS' && 
-                           env.VALIDATED_LAB != null && 
-                           !params.DRY_RUN 
-                } 
+                expression { !params.DRY_RUN } 
             }
             steps {
                 dir("${env.TF_DIR}") {
@@ -319,12 +304,7 @@ pipeline {
 
         stage('AWS Direct Cleanup') {
             when { 
-                expression { 
-                    return params.LAB_TO_DESTROY != 'SCAN_FOR_LABS' && 
-                           env.VALIDATED_LAB != null && 
-                           !params.DRY_RUN &&
-                           params.FORCE_DESTROY
-                } 
+                expression { !params.DRY_RUN && params.FORCE_DESTROY } 
             }
             steps {
                 script {
@@ -415,13 +395,9 @@ pipeline {
             }
         }
 
-        stage('Verify Complete Destruction') {
+        stage('Verification') {
             when { 
-                expression { 
-                    return params.LAB_TO_DESTROY != 'SCAN_FOR_LABS' && 
-                           env.VALIDATED_LAB != null && 
-                           !params.DRY_RUN 
-                } 
+                expression { !params.DRY_RUN } 
             }
             steps {
                 script {
@@ -469,49 +445,30 @@ pipeline {
     post {
         always {
             script {
-                echo "========== RÉSUMÉ DE L'OPÉRATION =========="
+                echo "========== RÉSUMÉ =========="
+                echo "🎯 Lab: ${env.VALIDATED_LAB ?: 'Non défini'}"
+                echo "🔄 Mode: ${params.DRY_RUN ? 'SIMULATION' : 'DESTRUCTION RÉELLE'}"
+                echo "💥 Force: ${params.FORCE_DESTROY ? 'Activé' : 'Désactivé'}"
                 
-                if (params.LAB_TO_DESTROY == 'SCAN_FOR_LABS') {
-                    echo "🔍 SCAN TERMINÉ"
-                    echo "Labs découverts: ${env.DISCOVERED_LABS ?: 'Aucun'}"
+                if (params.DRY_RUN) {
                     echo ""
-                    echo "💡 PROCHAINES ÉTAPES:"
-                    echo "1. Relancez ce pipeline"
-                    echo "2. Sélectionnez le lab à détruire dans la liste déroulante"
-                    echo "3. Choisissez DRY_RUN=false pour une destruction réelle"
-                } else if (env.VALIDATED_LAB) {
-                    echo "🎯 Lab ciblé: ${env.VALIDATED_LAB}"
-                    echo "🔄 Mode: ${params.DRY_RUN ? 'SIMULATION (DRY RUN)' : 'DESTRUCTION RÉELLE'}"
-                    echo "💥 Force: ${params.FORCE_DESTROY ? 'Activé' : 'Désactivé'}"
-                    
-                    if (params.DRY_RUN) {
-                        echo ""
-                        echo "ℹ️ SIMULATION TERMINÉE - Aucune ressource n'a été supprimée"
-                        echo "Pour une destruction réelle, relancez avec DRY_RUN=false"
-                    }
+                    echo "ℹ️ SIMULATION - Aucune ressource supprimée"
+                    echo "Pour détruire réellement, relancez avec DRY_RUN=false"
                 }
             }
         }
         success {
             script {
-                if (!params.DRY_RUN && env.VALIDATED_LAB) {
-                    echo "✅ DESTRUCTION RÉUSSIE pour le lab '${env.VALIDATED_LAB}'"
-                } else if (params.DRY_RUN && env.VALIDATED_LAB) {
-                    echo "✅ SIMULATION RÉUSSIE pour le lab '${env.VALIDATED_LAB}'"
+                if (!params.DRY_RUN) {
+                    echo "✅ DESTRUCTION RÉUSSIE"
                 } else {
-                    echo "✅ SCAN DES LABS TERMINÉ"
+                    echo "✅ SIMULATION RÉUSSIE"
                 }
             }
         }
         failure {
             script {
-                if (env.VALIDATED_LAB) {
-                    echo "❌ ÉCHEC DE LA DESTRUCTION pour le lab '${env.VALIDATED_LAB}'"
-                    echo "Vérifiez manuellement l'état des ressources AWS"
-                    echo "Utilisez FORCE_DESTROY=true si nécessaire"
-                } else {
-                    echo "❌ ÉCHEC DU SCAN DES LABS"
-                }
+                echo "❌ ÉCHEC - Vérifiez les logs et les ressources AWS"
             }
         }
     }
