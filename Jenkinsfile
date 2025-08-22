@@ -18,6 +18,8 @@ pipeline {
         TF_VAR_instance_type         = "${params.INSTANCE_TYPE}"
         TF_ACTION                    = "${params.ACTION}"
         TF_DIR                       = './'
+        TF_STATE_ROOT                = '/var/lib/jenkins/terraform-states'
+        TF_STATE_PATH                = "/var/lib/jenkins/terraform-states/${params.ENV_NAME}/terraform.tfstate"
     }
 
     stages {
@@ -47,31 +49,34 @@ La longueur maximale autorisée est de 15 caractères.
         }
 
         stage('Check if Lab Name Already Exists') {
-    when {
-        expression { params.ACTION == 'deploy' }
-    }
-    steps {
-        script {
-            def statePath = "./terraform.tfstate.d/${params.ENV_NAME}/terraform.tfstate"
-            if (fileExists(statePath)) {
-                def content = readFile(statePath)
-                // Vérifier s'il reste des ressources (hors 'provider')
-                def hasResources = content =~ /"resources":\s*\[(?!\s*\])/
-                if (hasResources) {
-                    error """
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
+            steps {
+                script {
+                    def statePath = env.TF_STATE_PATH
+                    if (fileExists(statePath)) {
+                        def content = readFile(statePath)
+                        def hasResources = content =~ /"resources":\s*\[(?!\s*\])/ 
+                        if (hasResources) {
+                            error """
 Le lab '${params.ENV_NAME}' existe déjà (state: ${statePath} contient des ressources Terraform).
 Veuillez choisir un autre nom ou détruire correctement l'environnement existant.
 """
+                        }
+                    }
                 }
             }
         }
-    }
-}
 
         stage('Terraform Init') {
             steps {
                 dir("${env.TF_DIR}") {
-                    sh 'terraform init'
+                    sh '''
+                        mkdir -p "${TF_STATE_ROOT}/${TF_VAR_env_name}"
+                        terraform init \
+                          -backend-config="path=${TF_STATE_ROOT}/${TF_VAR_env_name}/terraform.tfstate"
+                    '''
                 }
             }
         }
@@ -199,7 +204,7 @@ Veuillez choisir un autre nom ou détruire correctement l'environnement existant
                     rm -f ansible_inventory.ini
                     rm -f lab_rsa.pem
                     rm -f tfplan
-                    rm -rf ./terraform.tfstate.d/${TF_VAR_env_name}
+                    rm -rf "${TF_STATE_ROOT}/${TF_VAR_env_name}"
                     echo "Generated files cleaned up successfully"
                 '''
             }

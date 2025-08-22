@@ -10,6 +10,10 @@ terraform {
       version = "~> 4.0"
     }
   }
+
+  # Backend local to store state on Jenkins host. The concrete path is
+  # provided at runtime via `terraform init -backend-config="path=..."`.
+  backend "local" {}
 }
 
 provider "aws" {
