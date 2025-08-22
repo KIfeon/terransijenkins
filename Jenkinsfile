@@ -8,10 +8,11 @@ pipeline {
         choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','amazonlinux'], description: 'Distribution')
         choice(name: 'INSTANCE_TYPE', choices: ['t3.nano','t3.micro','t3.medium'], description: 'Instance type')
         choice(name: 'ACTION', choices: ['deploy','destroy'], description: 'Déployer ou Nettoyer ?')
+        string(name: 'LAB_TO_DESTROY', defaultValue: '', description: 'Lab existant à détruire (menu dynamique)')
     }
 
     environment {
-        TF_VAR_env_name              = "${params.ENV_NAME}"
+        TF_VAR_env_name              = "${params.ACTION == 'destroy' && params.LAB_TO_DESTROY?.trim() ? params.LAB_TO_DESTROY : params.ENV_NAME}"
         TF_VAR_instance_count        = "${params.INSTANCE_COUNT}"
         TF_VAR_instance_role         = "${params.INSTANCE_ROLE}"
         TF_VAR_instance_distribution = "${params.INSTANCE_DISTRO}"
@@ -21,6 +22,45 @@ pipeline {
     }
 
     stages {
+        stage('Configure Job Parameters') {
+            steps {
+                script {
+                    properties([
+                        parameters([
+                            string(name: 'ENV_NAME', defaultValue: 'lab-demo', description: 'Nom de l environnement Lab'),
+                            choice(name: 'INSTANCE_COUNT', choices: ['1','2','3','4','5'], description: 'Nombre d instances'),
+                            choice(name: 'INSTANCE_ROLE', choices: ['webserver','db','generic'], description: 'Rôle'),
+                            choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','amazonlinux'], description: 'Distribution'),
+                            choice(name: 'INSTANCE_TYPE', choices: ['t3.nano','t3.micro','t3.medium'], description: 'Instance type'),
+                            choice(name: 'ACTION', choices: ['deploy','destroy'], description: 'Déployer ou Nettoyer ?'),
+                            [$class: 'org.biouno.unochoice.DynamicChoiceParameter',
+                              description: 'Sélectionnez un lab existant à détruire',
+                              name: 'LAB_TO_DESTROY',
+                              randomName: 'choice-parameter-labs',
+                              script: [
+                                $class: 'org.biouno.unochoice.model.GroovyScript',
+                                sandbox: true,
+                                script: '''
+import jenkins.model.Jenkins
+
+def job = Jenkins.instance.getItemByFullName(JOB_NAME)
+if (job == null) return ["(aucun)"]
+def build = job.getLastSuccessfulBuild() ?: job.getLastBuild()
+def ws = build?.workspace
+if (ws == null) return ["(aucun)"]
+def stateDir = ws.child('terraform.tfstate.d')
+if (!stateDir.exists()) return ["(aucun)"]
+def items = stateDir.list().findAll { it.isDirectory() }.collect { it.name }.sort()
+return items ?: ["(aucun)"]
+''',
+                                fallbackScript: 'return ["(aucun)"]'
+                              ]
+                            ]
+                        ])
+                    ])
+                }
+            }
+        }
         stage('Checkout') {
             steps {
                 checkout scm
@@ -30,15 +70,15 @@ pipeline {
         stage('Validate ENV_NAME') {
             steps {
                 script {
-                    if (!params.ENV_NAME.matches('^[a-z0-9-]+$')) {
+                    if (!env.TF_VAR_env_name.matches('^[a-z0-9-]+$')) {
                         error """
-Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') contient des caractères non autorisés !
+Le nom d'environnement (ENV_NAME = '${env.TF_VAR_env_name}') contient des caractères non autorisés !
 Utilisez uniquement des lettres minuscules (a-z), des chiffres (0-9) et le tiret (-).
 """
                     }
-                    if (params.ENV_NAME.length() > 15) {
+                    if (env.TF_VAR_env_name.length() > 15) {
                         error """
-Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') est trop long (${params.ENV_NAME.length()} caractères).
+Le nom d'environnement (ENV_NAME = '${env.TF_VAR_env_name}') est trop long (${env.TF_VAR_env_name.length()} caractères).
 La longueur maximale autorisée est de 15 caractères.
 """
                     }
@@ -53,10 +93,10 @@ La longueur maximale autorisée est de 15 caractères.
             steps {
                 script {
                     // Vérifie si le fichier de state local existe déjà
-                    def statePath = "./terraform.tfstate.d/${params.ENV_NAME}/terraform.tfstate"
+                    def statePath = "./terraform.tfstate.d/${env.TF_VAR_env_name}/terraform.tfstate"
                     if (fileExists(statePath)) {
                         error """
-Un lab avec ce nom ('${params.ENV_NAME}') existe déjà (state: ${statePath}).
+Un lab avec ce nom ('${env.TF_VAR_env_name}') existe déjà (state: ${statePath}).
 Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
 """
                     }
@@ -188,7 +228,7 @@ Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
             when { expression { env.TF_ACTION == "destroy" } }
             steps {
                 script {
-                    echo "=== Cleaning up generated files for environment: ${params.ENV_NAME} ==="
+                    echo "=== Cleaning up generated files for environment: ${env.TF_VAR_env_name} ==="
                 }
                 sh '''
                     rm -f tf_outputs.json
@@ -204,7 +244,7 @@ Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
             steps {
                 dir("${env.TF_DIR}") {
                     script {
-                        echo "=== Verifying all resources destroyed for environment: ${params.ENV_NAME} ==="
+                        echo "=== Verifying all resources destroyed for environment: ${env.TF_VAR_env_name} ==="
                     }
                     sh '''
                         if ! terraform show | grep -q "resource"; then
@@ -228,12 +268,12 @@ Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
         always {
             script {
                 echo "========== RÉSUMÉ DES OPÉRATIONS =========="
-                echo "Environnement : ${params.ENV_NAME}"
+                echo "Environnement : ${env.TF_VAR_env_name}"
                 echo "Action : ${params.ACTION}"
                 if (params.ACTION == "destroy") {
                     echo "=== RÉSUMÉ DE LA DESTRUCTION ==="
-                    echo "Toutes les ressources pour l'environnement '${params.ENV_NAME}' ont été détruites :"
-                    echo "- Instances EC2 (${params.INSTANCE_COUNT} × ${params.INSTANCE_TYPE})"
+                    echo "Toutes les ressources pour l'environnement '${env.TF_VAR_env_name}' ont été détruites :"
+                    echo "- Instances EC2 (${env.TF_VAR_instance_count} × ${env.TF_VAR_instance_type})"
                     echo "- Bastion host"
                     echo "- VPC et sous-réseaux"
                     echo "- Security Groups"
@@ -248,19 +288,19 @@ Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
         success {
             script {
                 if (params.ACTION == "destroy") {
-                    echo "✅ DESTRUCTION RÉUSSIE pour l'environnement '${params.ENV_NAME}'"
+                    echo "✅ DESTRUCTION RÉUSSIE pour l'environnement '${env.TF_VAR_env_name}'"
                 } else {
-                    echo "✅ DÉPLOIEMENT RÉUSSI pour l'environnement '${params.ENV_NAME}'"
+                    echo "✅ DÉPLOIEMENT RÉUSSI pour l'environnement '${env.TF_VAR_env_name}'"
                 }
             }
         }
         failure {
             script {
                 if (params.ACTION == "destroy") {
-                    echo "❌ ÉCHEC DE LA DESTRUCTION pour l'environnement '${params.ENV_NAME}'"
+                    echo "❌ ÉCHEC DE LA DESTRUCTION pour l'environnement '${env.TF_VAR_env_name}'"
                     echo "Vérifiez manuellement l'état des ressources AWS"
                 } else {
-                    echo "❌ ÉCHEC DU DÉPLOIEMENT pour l'environnement '${params.ENV_NAME}'"
+                    echo "❌ ÉCHEC DU DÉPLOIEMENT pour l'environnement '${env.TF_VAR_env_name}'"
                 }
             }
         }
