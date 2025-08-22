@@ -24,6 +24,9 @@ pipeline {
                     rsync -a --delete --exclude .git ./ "$STATE_DIR/${TF_VAR_env_name}/"
                     '''
                 }
+                dir("$STATE_DIR/${TF_VAR_env_name}") {
+                    sh 'terraform init -input=false'
+                }
             }
         }
         stage('Destroy Lab Resources') {
@@ -32,7 +35,7 @@ pipeline {
                     script {
                         sh '''
                         if [ -f "terraform.tfstate" ]; then
-                          echo "Found local state at $TF_STATE_PATH; proceeding to destroy."
+                          echo "Found local state; proceeding to destroy."
                           terraform destroy -auto-approve -var="env_name=$TF_VAR_env_name"
                           rm -f terraform.tfstate
                         else
