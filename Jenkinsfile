@@ -8,7 +8,6 @@ pipeline {
         choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','amazonlinux'], description: 'Distribution')
         choice(name: 'INSTANCE_TYPE', choices: ['t3.nano','t3.micro','t3.medium'], description: 'Instance type')
         choice(name: 'ACTION', choices: ['deploy','destroy'], description: 'Déployer ou Nettoyer ?')
-        string(name: 'LAB_TO_DESTROY', defaultValue: '', description: 'Lab existant à détruire (menu dynamique)')
     }
 
     environment {
@@ -37,6 +36,8 @@ pipeline {
                               description: 'Sélectionnez un lab existant à détruire',
                               name: 'LAB_TO_DESTROY',
                               randomName: 'choice-parameter-labs',
+                              choiceType: 'PT_SINGLE_SELECT',
+                              filterable: true,
                               script: [
                                 $class: 'org.biouno.unochoice.model.GroovyScript',
                                 sandbox: true,
