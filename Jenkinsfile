@@ -27,25 +27,42 @@ pipeline {
             }
         }
 
-            stage('Validate ENV_NAME') {
-        steps {
-            script {
-                // Autoriser seulement a-z, 0-9, - et longueur max 15
-                if (!params.ENV_NAME.matches('^[a-z0-9-]+$')) {
-                    error """
-    Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') contient des caractères non autorisés !
-    Utilisez uniquement des lettres minuscules (a-z), des chiffres (0-9) et le tiret (-).
-    """
-                }
-                if (params.ENV_NAME.length() > 15) {
-                    error """
-    Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') est trop long (${params.ENV_NAME.length()} caractères).
-    La longueur maximale autorisée est de 15 caractères.
-    """
+        stage('Validate ENV_NAME') {
+            steps {
+                script {
+                    if (!params.ENV_NAME.matches('^[a-z0-9-]+$')) {
+                        error """
+Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') contient des caractères non autorisés !
+Utilisez uniquement des lettres minuscules (a-z), des chiffres (0-9) et le tiret (-).
+"""
+                    }
+                    if (params.ENV_NAME.length() > 15) {
+                        error """
+Le nom d'environnement (ENV_NAME = '${params.ENV_NAME}') est trop long (${params.ENV_NAME.length()} caractères).
+La longueur maximale autorisée est de 15 caractères.
+"""
+                    }
                 }
             }
         }
-    }
+
+        stage('Check if Lab Name Already Exists') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
+            steps {
+                script {
+                    // Vérifie si le fichier de state local existe déjà
+                    def statePath = "./terraform.tfstate.d/${params.ENV_NAME}/terraform.tfstate"
+                    if (fileExists(statePath)) {
+                        error """
+Un lab avec ce nom ('${params.ENV_NAME}') existe déjà (state: ${statePath}).
+Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
+"""
+                    }
+                }
+            }
+        }
 
         stage('Terraform Init') {
             steps {
@@ -182,7 +199,6 @@ pipeline {
                 '''
             }
         }
-
         stage('Verify Destroy Completion') {
             when { expression { env.TF_ACTION == "destroy" } }
             steps {
@@ -207,17 +223,6 @@ pipeline {
                 }
             }
         }
-
-        // Optionnel : Lancer Ansible après déploiement (adapter selon ton setup)
-        // stage('Configuration Ansible') {
-        //     when { expression { env.TF_ACTION == "deploy" } }
-        //     steps {
-        //         dir("${env.TF_DIR}") {
-        //             sh 'ansible-playbook -i inventory.py site.yml'
-        //         }
-        //     }
-        // }
-
     }
     post {
         always {
@@ -225,7 +230,6 @@ pipeline {
                 echo "========== RÉSUMÉ DES OPÉRATIONS =========="
                 echo "Environnement : ${params.ENV_NAME}"
                 echo "Action : ${params.ACTION}"
-
                 if (params.ACTION == "destroy") {
                     echo "=== RÉSUMÉ DE LA DESTRUCTION ==="
                     echo "Toutes les ressources pour l'environnement '${params.ENV_NAME}' ont été détruites :"
@@ -236,7 +240,7 @@ pipeline {
                     echo "- Application Load Balancer (si webserver)"
                     echo "- Target Groups (si webserver)"
                     echo "- Clés SSH AWS"
-                    echo "- Fichiers générés locaux (inventory, clés privées, etc.)"
+                                        echo "- Fichiers générés locaux (inventory, clés privées, etc.)"
                     echo "=========================================="
                 }
             }
@@ -250,7 +254,7 @@ pipeline {
                 }
             }
         }
-                failure {
+        failure {
             script {
                 if (params.ACTION == "destroy") {
                     echo "❌ ÉCHEC DE LA DESTRUCTION pour l'environnement '${params.ENV_NAME}'"
