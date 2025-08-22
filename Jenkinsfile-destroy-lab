@@ -45,6 +45,9 @@ pipeline {
                     sh '''
                         mkdir -p "${TF_STATE_ROOT}/${SELECTED_ENV}"
                         terraform init \
+                          -input=false \
+                          -reconfigure \
+                          -migrate-state \
                           -backend-config="path=${TF_STATE_ROOT}/${SELECTED_ENV}/terraform.tfstate"
                     '''
                 }
