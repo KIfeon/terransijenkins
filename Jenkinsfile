@@ -73,10 +73,15 @@ Veuillez choisir un autre nom ou détruire correctement l'environnement existant
             steps {
                 dir("${env.TF_DIR}") {
                     sh '''
+                        # Clean any existing state and backend config
+                        rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup
+                        
+                        # Create state directory
                         mkdir -p "${TF_STATE_ROOT}/${TF_VAR_env_name}"
+                        
+                        # Initialize with new backend
                         terraform init \
                           -input=false \
-                          -reconfigure \
                           -backend-config="path=${TF_STATE_ROOT}/${TF_VAR_env_name}/terraform.tfstate"
                     '''
                 }
