@@ -14,75 +14,16 @@ pipeline {
                 script: [
                     classpath: [], 
                     script: '''
-try {
-    // Use separate commands to avoid complex escaping
-    def vpcCmd = ['aws', 'ec2', 'describe-vpcs', 
-                  '--region', 'us-east-1',
-                  '--filters', 'Name=tag:Environment,Values=*',
-                  '--query', 'Vpcs[?contains(Tags[?Key==`Environment`].Value, `lab`)].Tags[?Key==`Environment`].Value',
-                  '--output', 'text']
-    
-    def keyCmd = ['aws', 'ec2', 'describe-key-pairs',
-                  '--region', 'us-east-1', 
-                  '--query', 'KeyPairs[?contains(KeyName, `lab`)].KeyName',
-                  '--output', 'text']
-    
-    def allLabs = []
-    
-    // Get VPC labs
-    def proc1 = vpcCmd.execute()
-    proc1.waitFor()
-    if (proc1.exitValue() == 0) {
-        def vpcs = proc1.text.trim()
-        if (vpcs && !vpcs.isEmpty() && vpcs != "None") {
-            vpcs.split('\\t|\\n').each { lab ->
-                def cleanLab = lab?.trim()
-                if (cleanLab && cleanLab.contains('lab')) {
-                    allLabs.add(cleanLab)
-                }
-            }
-        }
-    }
-    
-    // Get SSH key labs
-    def proc2 = keyCmd.execute()
-    proc2.waitFor()
-    if (proc2.exitValue() == 0) {
-        def keys = proc2.text.trim()
-        if (keys && !keys.isEmpty() && keys != "None") {
-            keys.split('\\t|\\n').each { key ->
-                def cleanKey = key?.trim()
-                if (cleanKey && cleanKey.contains('lab')) {
-                    // Remove -key suffix
-                    def labName = cleanKey.replaceAll('-key$', '')
-                    if (labName) {
-                        allLabs.add(labName)
-                    }
-                }
-            }
-        }
-    }
-    
-    def uniqueLabs = allLabs.unique().sort()
-    
-    def result = []
-    if (uniqueLabs.size() == 0) {
-        result.add("❌ Aucun lab trouvé")
-        result.add("🔄 Actualiser la page")
-    } else {
-        result.add("🔍 Sélectionnez un lab:")
-        uniqueLabs.each { lab ->
-            if (lab && lab.trim()) {
-                result.add("🧪 " + lab.trim())
-            }
-        }
-    }
-    
-    return result
-    
-} catch (Exception e) {
-    return ["❌ Erreur: " + e.getMessage(), "🔄 Vérifiez configuration AWS"]
-}
+// Simple static list for now - we'll populate this dynamically later
+def staticLabs = [
+    "🔍 Sélectionnez un lab:",
+    "🧪 lab-demo", 
+    "🧪 lab-test",
+    "🧪 lab-staging",
+    "🔄 Actualiser pour voir tous les labs"
+]
+
+return staticLabs
                     '''
                 ]
             )
@@ -105,34 +46,95 @@ try {
     }
 
     stages {
-        stage('Validate Lab Selection') {
+        stage('Discover and Validate Lab') {
             steps {
                 script {
-                    echo "=== 🎯 VALIDATION DE LA SÉLECTION ==="
+                    echo "=== 🔍 DÉCOUVERTE DES LABS DISPONIBLES ==="
+                    
+                    // Discover real labs from AWS
+                    def realLabs = sh(
+                        script: '''
+                            echo "Recherche des labs dans AWS..."
+                            
+                            # VPC labs
+                            vpcs=$(aws ec2 describe-vpcs --region us-east-1 --filters "Name=tag:Environment,Values=*" --query 'Vpcs[?contains(Tags[?Key==`Environment`].Value, `lab`)].Tags[?Key==`Environment`].Value' --output text 2>/dev/null | tr '\\t' '\\n' | sort -u | grep -v '^$' || true)
+                            
+                            # SSH key labs  
+                            keys=$(aws ec2 describe-key-pairs --region us-east-1 --query 'KeyPairs[?contains(KeyName, `lab`)].KeyName' --output text 2>/dev/null | tr '\\t' '\\n' | sed 's/-key$//' | sort -u | grep -v '^$' || true)
+                            
+                            # Combine and deduplicate
+                            all_labs=$(printf "%s\\n%s" "$vpcs" "$keys" | sort -u | grep -v '^$' | grep lab || true)
+                            
+                            if [ -n "$all_labs" ]; then
+                                echo "✅ Labs trouvés:"
+                                echo "$all_labs" | while read lab; do
+                                    [ -n "$lab" ] && echo "  🧪 $lab"
+                                done
+                                echo "$all_labs"
+                            else
+                                echo "❌ Aucun lab trouvé"
+                                echo "NONE"
+                            fi
+                        ''',
+                        returnStdout: true
+                    ).trim()
                     
                     def selectedLab = params.LAB_TO_DESTROY
+                    echo "=== 🎯 VALIDATION DE LA SÉLECTION ==="
                     echo "Sélection reçue: ${selectedLab}"
                     
-                    // Vérifier si c'est un header ou une erreur
-                    if (selectedLab.contains("❌ Aucun lab") || selectedLab.contains("🔄 Actualiser")) {
-                        error("❌ Aucun lab trouvé. Vérifiez vos credentials AWS et actualisez la page.")
+                    // Check if user needs to refresh or select
+                    if (selectedLab.contains("🔄 Actualiser")) {
+                        echo "🔄 L'utilisateur demande une actualisation des labs"
+                        echo "Labs actuellement disponibles dans la liste ci-dessus"
+                        error("🔄 Veuillez sélectionner un lab spécifique depuis la liste déroulante mise à jour")
                     }
                     
                     if (selectedLab.contains("🔍 Sélectionnez")) {
                         error("❌ Veuillez sélectionner un lab spécifique dans la liste déroulante.")
                     }
                     
-                    // Extraire le nom du lab (enlever l'emoji 🧪)
+                    // Extract lab name (remove emoji)
                     def labName = selectedLab.replaceAll(/^🧪\s*/, '').trim()
                     
                     if (!labName || labName.isEmpty()) {
                         error("❌ Nom de lab invalide. Sélectionnez un lab commençant par 🧪")
                     }
                     
+                    echo "✅ Lab extrait: ${labName}"
+                    
+                    // Verify the lab exists in our real discovery
+                    def labLines = realLabs.split('\\n')
+                    def realLabsList = []
+                    boolean foundInDiscovery = false
+                    
+                    for (line in labLines) {
+                        if (line && line.trim() && !line.contains('✅') && !line.contains('🧪') && !line.contains('❌')) {
+                            def cleanLab = line.trim()
+                            if (cleanLab) {
+                                realLabsList.add(cleanLab)
+                                if (cleanLab == labName) {
+                                    foundInDiscovery = true
+                                }
+                            }
+                        }
+                    }
+                    
+                    echo "Labs découverts dans AWS: ${realLabsList}"
+                    echo "Lab sélectionné trouvé dans la découverte: ${foundInDiscovery}"
+                    
+                    if (!foundInDiscovery && realLabsList.size() > 0) {
+                        error("❌ Le lab '${labName}' n'est pas dans la liste des labs découverts: ${realLabsList}. Actualisez la page.")
+                    }
+                    
+                    if (realLabsList.size() == 0) {
+                        error("❌ Aucun lab trouvé dans AWS. Vérifiez vos credentials et la région.")
+                    }
+                    
                     echo "✅ Lab validé: ${labName}"
                     env.VALIDATED_LAB = labName
                     
-                    // Double vérification que le lab existe toujours
+                    // Final verification that lab still exists
                     def labStillExists = sh(
                         script: """
                             lab="${labName}"
@@ -140,7 +142,7 @@ try {
                             # Vérifier VPC
                             vpc_exists=\$(aws ec2 describe-vpcs --filters "Name=tag:Environment,Values=\$lab" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
                             
-                            # Vérifier clé SSH
+                            # Vérifier clé SSH  
                             key_exists=\$(aws ec2 describe-key-pairs --key-names "\$lab-key" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null || echo "None")
                             
                             if [ "\$vpc_exists" != "None" ] || [ "\$key_exists" != "None" ]; then
@@ -153,10 +155,10 @@ try {
                     ).trim()
                     
                     if (labStillExists != "EXISTS") {
-                        error("❌ Le lab '${labName}' n'existe plus. Il a peut-être été supprimé récemment.")
+                        error("❌ Le lab '${labName}' n'existe plus dans AWS. Il a peut-être été supprimé récemment.")
                     }
                     
-                    echo "✅ Lab confirmé existant: ${labName}"
+                    echo "✅ Lab confirmé existant dans AWS: ${labName}"
                 }
             }
         }
