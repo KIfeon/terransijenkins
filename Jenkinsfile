@@ -175,12 +175,12 @@ pipeline {
                     }
                     sh '''
                         # Check if there are any remaining resources in state
-                        if terraform show | grep -q "resource"; then
+                        if ! terraform show | grep -q "resource"; then
+                            echo "SUCCESS: No resources found in terraform state"
+                        else
                             echo "WARNING: Some resources may still exist in state!"
                             terraform show
                             exit 1
-                        else
-                            echo "SUCCESS: No resources found in terraform state"
                         fi
                         
                         # Optional: Also check if state file exists and is empty/minimal
