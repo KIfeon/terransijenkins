@@ -51,12 +51,25 @@ pipeline {
                             """
                         } else {
                             sh """
+                                echo "=== Starting DESTROY for environment: $TF_VAR_env_name ==="
+                                
+                                # First, run terraform plan -destroy to see what will be destroyed
+                                terraform plan -destroy \
+                                    -var='env_name=$TF_VAR_env_name' \
+                                    -var='instance_count=$TF_VAR_instance_count' \
+                                    -var='instance_role=$TF_VAR_instance_role' \
+                                    -var='instance_distribution=$TF_VAR_instance_distribution' \
+                                    -var='instance_type=$TF_VAR_instance_type'
+                                
+                                echo "=== Executing DESTROY ==="
                                 terraform destroy -auto-approve \
                                     -var='env_name=$TF_VAR_env_name' \
                                     -var='instance_count=$TF_VAR_instance_count' \
                                     -var='instance_role=$TF_VAR_instance_role' \
                                     -var='instance_distribution=$TF_VAR_instance_distribution' \
                                     -var='instance_type=$TF_VAR_instance_type'
+                                
+                                echo "=== DESTROY completed for environment: $TF_VAR_env_name ==="
                             """
                         }
                     }
@@ -135,6 +148,51 @@ pipeline {
                 }
             }
         }
+        stage('Cleanup Generated Files') {
+            when { expression { env.TF_ACTION == "destroy" } }
+            steps {
+                script {
+                    echo "=== Cleaning up generated files for environment: ${params.ENV_NAME} ==="
+                }
+                sh '''
+                    # Remove generated files to ensure clean state
+                    rm -f tf_outputs.json
+                    rm -f ansible_inventory.ini
+                    rm -f lab_rsa.pem
+                    rm -f tfplan
+                    
+                    echo "Generated files cleaned up successfully"
+                '''
+            }
+        }
+        
+        stage('Verify Destroy Completion') {
+            when { expression { env.TF_ACTION == "destroy" } }
+            steps {
+                dir("${env.TF_DIR}") {
+                    script {
+                        echo "=== Verifying all resources destroyed for environment: ${params.ENV_NAME} ==="
+                    }
+                    sh '''
+                        # Check if there are any remaining resources in state
+                        if terraform show | grep -q "resource"; then
+                            echo "WARNING: Some resources may still exist in state!"
+                            terraform show
+                            exit 1
+                        else
+                            echo "SUCCESS: No resources found in terraform state"
+                        fi
+                        
+                        # Optional: Also check if state file exists and is empty/minimal
+                        if [ -f terraform.tfstate ]; then
+                            echo "State file contents:"
+                            cat terraform.tfstate | jq '.resources // []' | head -10
+                        fi
+                    '''
+                }
+            }
+        }
+        
         // Optionnel : Lancer Ansible après déploiement (adapter selon ton setup)
         // stage('Configuration Ansible') {
         //     when { expression { env.TF_ACTION == "deploy" } }
@@ -148,7 +206,44 @@ pipeline {
     }
     post {
         always {
-            echo "Statut du lab : ${params.ENV_NAME} | Action : ${params.ACTION}"
+            script {
+                echo "========== RÉSUMÉ DES OPÉRATIONS =========="
+                echo "Environnement : ${params.ENV_NAME}"
+                echo "Action : ${params.ACTION}"
+                
+                if (params.ACTION == "destroy") {
+                    echo "=== RÉSUMÉ DE LA DESTRUCTION ==="
+                    echo "Toutes les ressources pour l'environnement '${params.ENV_NAME}' ont été détruites :"
+                    echo "- Instances EC2 (${params.INSTANCE_COUNT} × ${params.INSTANCE_TYPE})"
+                    echo "- Bastion host"
+                    echo "- VPC et sous-réseaux"
+                    echo "- Security Groups"
+                    echo "- Application Load Balancer (si webserver)"
+                    echo "- Target Groups (si webserver)"
+                    echo "- Clés SSH AWS"
+                    echo "- Fichiers générés locaux (inventory, clés privées, etc.)"
+                    echo "=========================================="
+                }
+            }
+        }
+        success {
+            script {
+                if (params.ACTION == "destroy") {
+                    echo "✅ DESTRUCTION RÉUSSIE pour l'environnement '${params.ENV_NAME}'"
+                } else {
+                    echo "✅ DÉPLOIEMENT RÉUSSI pour l'environnement '${params.ENV_NAME}'"
+                }
+            }
+        }
+        failure {
+            script {
+                if (params.ACTION == "destroy") {
+                    echo "❌ ÉCHEC DE LA DESTRUCTION pour l'environnement '${params.ENV_NAME}'"
+                    echo "Vérifiez manuellement l'état des ressources AWS"
+                } else {
+                    echo "❌ ÉCHEC DU DÉPLOIEMENT pour l'environnement '${params.ENV_NAME}'"
+                }
+            }
         }
     }
 }
