@@ -76,7 +76,6 @@ Veuillez choisir un autre nom ou détruire correctement l'environnement existant
                         mkdir -p "${TF_STATE_ROOT}/${TF_VAR_env_name}"
                         terraform init \
                           -input=false \
-                          -reconfigure \
                           -migrate-state \
                           -backend-config="path=${TF_STATE_ROOT}/${TF_VAR_env_name}/terraform.tfstate"
                     '''
