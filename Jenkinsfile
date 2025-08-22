@@ -47,22 +47,26 @@ La longueur maximale autorisée est de 15 caractères.
         }
 
         stage('Check if Lab Name Already Exists') {
-            when {
-                expression { params.ACTION == 'deploy' }
-            }
-            steps {
-                script {
-                    // Vérifie si le fichier de state local existe déjà
-                    def statePath = "./terraform.tfstate.d/${params.ENV_NAME}/terraform.tfstate"
-                    if (fileExists(statePath)) {
-                        error """
-Un lab avec ce nom ('${params.ENV_NAME}') existe déjà (state: ${statePath}).
-Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
+    when {
+        expression { params.ACTION == 'deploy' }
+    }
+    steps {
+        script {
+            def statePath = "./terraform.tfstate.d/${params.ENV_NAME}/terraform.tfstate"
+            if (fileExists(statePath)) {
+                def content = readFile(statePath)
+                // Vérifier s'il reste des ressources (hors 'provider')
+                def hasResources = content =~ /"resources":\s*\[(?!\s*\])/
+                if (hasResources) {
+                    error """
+Le lab '${params.ENV_NAME}' existe déjà (state: ${statePath} contient des ressources Terraform).
+Veuillez choisir un autre nom ou détruire correctement l'environnement existant.
 """
-                    }
                 }
             }
         }
+    }
+}
 
         stage('Terraform Init') {
             steps {
