@@ -195,6 +195,7 @@ Veuillez choisir un autre nom ou détruire d'abord l'environnement existant.
                     rm -f ansible_inventory.ini
                     rm -f lab_rsa.pem
                     rm -f tfplan
+                    rm -rf ./terraform.tfstate.d/${TF_VAR_env_name}
                     echo "Generated files cleaned up successfully"
                 '''
             }
