@@ -2,31 +2,15 @@ pipeline {
     agent any
 
     parameters {
-        activeChoice(
-            name: 'LAB_TO_DESTROY',
-            description: '🧪 Choisir le lab à détruire',
-            choiceType: 'SINGLE_SELECT',
-            script: groovyScript(
-                fallbackScript: [
-                    classpath: [], 
-                    script: 'return ["❌ Erreur de chargement", "🔄 Vérifiez AWS CLI"]'
-                ],
-                script: [
-                    classpath: [], 
-                    script: '''
-// Simple static list for now - we'll populate this dynamically later
-def staticLabs = [
-    "🔍 Sélectionnez un lab:",
-    "🧪 lab-demo", 
-    "🧪 lab-test",
-    "🧪 lab-staging",
-    "🔄 Actualiser pour voir tous les labs"
-]
-
-return staticLabs
-                    '''
-                ]
-            )
+        string(
+            name: 'LAB_NAME', 
+            defaultValue: '', 
+            description: '🧪 Nom du lab à détruire (laissez vide pour voir la liste des labs disponibles)'
+        )
+        booleanParam(
+            name: 'LIST_LABS_ONLY', 
+            defaultValue: true, 
+            description: '🔍 Lister les labs disponibles seulement (décochez pour détruire)'
         )
         booleanParam(
             name: 'DRY_RUN', 
@@ -46,103 +30,96 @@ return staticLabs
     }
 
     stages {
-        stage('Discover and Validate Lab') {
+        stage('List Available Labs') {
+            when { 
+                expression { params.LIST_LABS_ONLY } 
+            }
             steps {
                 script {
                     echo "=== 🔍 DÉCOUVERTE DES LABS DISPONIBLES ==="
                     
-                    // Discover real labs from AWS
-                    def realLabs = sh(
+                    def availableLabs = sh(
                         script: '''
-                            echo "Recherche des labs dans AWS..."
+                            echo "🔍 Recherche des labs existants dans AWS..."
+                            echo ""
                             
-                            # VPC labs
+                            # Via VPC tags
+                            echo "📍 Labs trouvés via VPC tags:"
                             vpcs=$(aws ec2 describe-vpcs --region us-east-1 --filters "Name=tag:Environment,Values=*" --query 'Vpcs[?contains(Tags[?Key==`Environment`].Value, `lab`)].Tags[?Key==`Environment`].Value' --output text 2>/dev/null | tr '\\t' '\\n' | sort -u | grep -v '^$' || true)
-                            
-                            # SSH key labs  
-                            keys=$(aws ec2 describe-key-pairs --region us-east-1 --query 'KeyPairs[?contains(KeyName, `lab`)].KeyName' --output text 2>/dev/null | tr '\\t' '\\n' | sed 's/-key$//' | sort -u | grep -v '^$' || true)
-                            
-                            # Combine and deduplicate
-                            all_labs=$(printf "%s\\n%s" "$vpcs" "$keys" | sort -u | grep -v '^$' | grep lab || true)
-                            
-                            if [ -n "$all_labs" ]; then
-                                echo "✅ Labs trouvés:"
-                                echo "$all_labs" | while read lab; do
+                            if [ -n "$vpcs" ]; then
+                                echo "$vpcs" | while read lab; do
                                     [ -n "$lab" ] && echo "  🧪 $lab"
                                 done
-                                echo "$all_labs"
                             else
-                                echo "❌ Aucun lab trouvé"
-                                echo "NONE"
+                                echo "  (aucun)"
+                            fi
+                            echo ""
+                            
+                            # Via clés SSH
+                            echo "🔑 Labs trouvés via clés SSH:"
+                            keys=$(aws ec2 describe-key-pairs --region us-east-1 --query 'KeyPairs[?contains(KeyName, `lab`)].KeyName' --output text 2>/dev/null | tr '\\t' '\\n' | sed 's/-key$//' | sort -u | grep -v '^$' || true)
+                            if [ -n "$keys" ]; then
+                                echo "$keys" | while read lab; do
+                                    [ -n "$lab" ] && echo "  🧪 $lab"
+                                done
+                            else
+                                echo "  (aucun)"
+                            fi
+                            echo ""
+                            
+                            # Liste consolidée
+                            all_labs=$(printf "%s\\n%s" "$vpcs" "$keys" | sort -u | grep -v '^$' | grep lab || true)
+                            if [ -n "$all_labs" ]; then
+                                echo "✅ LABS DISPONIBLES POUR DESTRUCTION:"
+                                echo "$all_labs" | while read lab; do
+                                    [ -n "$lab" ] && echo "  🎯 $lab"
+                                done
+                                echo ""
+                                echo "💡 PROCHAINES ÉTAPES:"
+                                echo "1. Copiez le nom d'un lab ci-dessus"
+                                echo "2. Relancez le pipeline avec:"
+                                echo "   - LAB_NAME: [nom du lab copié]"
+                                echo "   - LIST_LABS_ONLY: ☐ (décoché)"
+                                echo "   - DRY_RUN: ☑ (coché pour tester d'abord)"
+                            else
+                                echo "❌ Aucun lab trouvé dans la région us-east-1"
+                                echo ""
+                                echo "💡 Vérifiez:"
+                                echo "- Que vous êtes connecté au bon compte AWS"
+                                echo "- Que des labs existent dans la région us-east-1"
+                                echo "- Que les credentials AWS sont configurés"
                             fi
                         ''',
                         returnStdout: true
-                    ).trim()
+                    )
                     
-                    def selectedLab = params.LAB_TO_DESTROY
-                    echo "=== 🎯 VALIDATION DE LA SÉLECTION ==="
-                    echo "Sélection reçue: ${selectedLab}"
+                    echo availableLabs
                     
-                    // Check if user needs to refresh or select
-                    if (selectedLab.contains("🔄 Actualiser")) {
-                        echo "🔄 L'utilisateur demande une actualisation des labs"
-                        echo "Labs actuellement disponibles dans la liste ci-dessus"
-                        error("🔄 Veuillez sélectionner un lab spécifique depuis la liste déroulante mise à jour")
-                    }
+                    echo ""
+                    echo "🛑 WORKFLOW ARRÊTÉ - Mode découverte uniquement"
+                    echo "Pour détruire un lab: relancez avec LIST_LABS_ONLY=false et LAB_NAME rempli"
+                }
+            }
+        }
+
+        stage('Validate Lab Name') {
+            when { 
+                expression { !params.LIST_LABS_ONLY && params.LAB_NAME?.trim() } 
+            }
+            steps {
+                script {
+                    echo "=== 🎯 VALIDATION DU LAB ==="
+                    echo "Lab demandé: ${params.LAB_NAME}"
                     
-                    if (selectedLab.contains("🔍 Sélectionnez")) {
-                        error("❌ Veuillez sélectionner un lab spécifique dans la liste déroulante.")
-                    }
-                    
-                    // Extract lab name (remove emoji)
-                    def labName = selectedLab.replaceAll(/^🧪\s*/, '').trim()
-                    
-                    if (!labName || labName.isEmpty()) {
-                        error("❌ Nom de lab invalide. Sélectionnez un lab commençant par 🧪")
-                    }
-                    
-                    echo "✅ Lab extrait: ${labName}"
-                    
-                    // Verify the lab exists in our real discovery
-                    def labLines = realLabs.split('\\n')
-                    def realLabsList = []
-                    boolean foundInDiscovery = false
-                    
-                    for (line in labLines) {
-                        if (line && line.trim() && !line.contains('✅') && !line.contains('🧪') && !line.contains('❌')) {
-                            def cleanLab = line.trim()
-                            if (cleanLab) {
-                                realLabsList.add(cleanLab)
-                                if (cleanLab == labName) {
-                                    foundInDiscovery = true
-                                }
-                            }
-                        }
-                    }
-                    
-                    echo "Labs découverts dans AWS: ${realLabsList}"
-                    echo "Lab sélectionné trouvé dans la découverte: ${foundInDiscovery}"
-                    
-                    if (!foundInDiscovery && realLabsList.size() > 0) {
-                        error("❌ Le lab '${labName}' n'est pas dans la liste des labs découverts: ${realLabsList}. Actualisez la page.")
-                    }
-                    
-                    if (realLabsList.size() == 0) {
-                        error("❌ Aucun lab trouvé dans AWS. Vérifiez vos credentials et la région.")
-                    }
-                    
-                    echo "✅ Lab validé: ${labName}"
-                    env.VALIDATED_LAB = labName
-                    
-                    // Final verification that lab still exists
-                    def labStillExists = sh(
+                    // Vérifier que le lab existe
+                    def labExists = sh(
                         script: """
-                            lab="${labName}"
+                            lab="${params.LAB_NAME}"
                             
                             # Vérifier VPC
                             vpc_exists=\$(aws ec2 describe-vpcs --filters "Name=tag:Environment,Values=\$lab" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
                             
-                            # Vérifier clé SSH  
+                            # Vérifier clé SSH
                             key_exists=\$(aws ec2 describe-key-pairs --key-names "\$lab-key" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null || echo "None")
                             
                             if [ "\$vpc_exists" != "None" ] || [ "\$key_exists" != "None" ]; then
@@ -154,16 +131,20 @@ return staticLabs
                         returnStdout: true
                     ).trim()
                     
-                    if (labStillExists != "EXISTS") {
-                        error("❌ Le lab '${labName}' n'existe plus dans AWS. Il a peut-être été supprimé récemment.")
+                    if (labExists != "EXISTS") {
+                        error("❌ Le lab '${params.LAB_NAME}' n'existe pas. Lancez d'abord avec LIST_LABS_ONLY=true pour voir les labs disponibles.")
                     }
                     
-                    echo "✅ Lab confirmé existant dans AWS: ${labName}"
+                    echo "✅ Lab '${params.LAB_NAME}' trouvé et validé"
+                    env.VALIDATED_LAB = params.LAB_NAME
                 }
             }
         }
 
         stage('Show Lab Details') {
+            when { 
+                expression { !params.LIST_LABS_ONLY && env.VALIDATED_LAB } 
+            }
             steps {
                 script {
                     echo "=== DÉTAILS DU LAB ==="
@@ -204,6 +185,9 @@ return staticLabs
         }
 
         stage('Show Destruction Plan') {
+            when { 
+                expression { !params.LIST_LABS_ONLY && env.VALIDATED_LAB } 
+            }
             steps {
                 script {
                     echo "=== PLAN DE DESTRUCTION ==="
@@ -256,7 +240,7 @@ return staticLabs
 
         stage('Terraform Destroy') {
             when { 
-                expression { !params.DRY_RUN } 
+                expression { !params.LIST_LABS_ONLY && !params.DRY_RUN && env.VALIDATED_LAB } 
             }
             steps {
                 dir("${env.TF_DIR}") {
@@ -359,7 +343,7 @@ return staticLabs
 
         stage('AWS Direct Cleanup') {
             when { 
-                expression { !params.DRY_RUN && params.FORCE_DESTROY } 
+                expression { !params.LIST_LABS_ONLY && !params.DRY_RUN && params.FORCE_DESTROY && env.VALIDATED_LAB } 
             }
             steps {
                 script {
@@ -452,7 +436,7 @@ return staticLabs
 
         stage('Verification') {
             when { 
-                expression { !params.LIST_LABS_FIRST && !params.DRY_RUN && env.VALIDATED_LAB } 
+                expression { !params.LIST_LABS_ONLY && !params.DRY_RUN && env.VALIDATED_LAB } 
             }
             steps {
                 script {
