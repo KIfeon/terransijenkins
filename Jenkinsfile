@@ -8,7 +8,6 @@ pipeline {
         choice(name: 'INSTANCE_DISTRO', choices: ['ubuntu','debian','amazonlinux'], description: 'Distribution')
         choice(name: 'INSTANCE_TYPE', choices: ['t3.nano','t3.micro','t3.medium'], description: 'Instance type')
         choice(name: 'ACTION', choices: ['deploy','destroy'], description: 'Déployer ou Nettoyer ?')
-        string(name: 'STATE_DIR', defaultValue: '/var/lib/jenkins/terraform-states', description: 'Base dir to store local state per lab')
     }
 
     environment {
@@ -19,7 +18,6 @@ pipeline {
         TF_VAR_instance_type         = "${params.INSTANCE_TYPE}"
         TF_ACTION                    = "${params.ACTION}"
         TF_DIR                       = './'
-        STATE_DIR                    = "${params.STATE_DIR}"
     }
 
     stages {
@@ -30,18 +28,14 @@ pipeline {
         }
         stage('Terraform Init') {
             steps {
-                sh '''
-                mkdir -p "$STATE_DIR/${TF_VAR_env_name}"
-                rsync -a --delete --exclude .git ./ "$STATE_DIR/${TF_VAR_env_name}/"
-                '''
-                dir("$STATE_DIR/${TF_VAR_env_name}") {
+                dir("${env.TF_DIR}") {
                     sh 'terraform init'
                 }
             }
         }
         stage('Terraform Plan & Apply/Destroy') {
             steps {
-                dir("$STATE_DIR/${TF_VAR_env_name}") {
+                dir("${env.TF_DIR}") {
                     script {
                         if (env.TF_ACTION == "deploy") {
                             sh """
@@ -72,7 +66,6 @@ pipeline {
         stage('Generate Ansible Inventory') {
             when { expression { env.TF_ACTION == "deploy" } }
             steps {
-                dir("$STATE_DIR/${TF_VAR_env_name}") {
                 sh '''
                 terraform output -json > tf_outputs.json
                 bastion_ip=$(jq -r .bastion_public_ip.value tf_outputs.json)
@@ -102,32 +95,27 @@ pipeline {
                   fi
                 done
                 '''
-                }
             }
         }
         stage('Write Ansible SSH Key') {
             when { expression { env.TF_ACTION == "deploy" } }
             steps {
-                dir("$STATE_DIR/${TF_VAR_env_name}") {
                 sh '''
                 terraform output -raw ssh_private_key_pem > lab_rsa.pem
                 chmod 600 lab_rsa.pem
                 '''
-                }
             }
         }
         stage('Ansible - Copy SSH Key') {
             when { expression { env.TF_ACTION == "deploy" } }
             steps {
-                dir("$STATE_DIR/${TF_VAR_env_name}") {
-                    sh 'ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible_inventory.ini ansible_playbook.yml --private-key lab_rsa.pem --timeout 60'
-                }
+                sh 'ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible_inventory.ini ansible_playbook.yml --private-key lab_rsa.pem --timeout 60'
             }
         }
         stage('Afficher infos Lab & clé SSH') {
             when { expression { env.TF_ACTION == "deploy" } }
             steps {
-                dir("$STATE_DIR/${TF_VAR_env_name}") {
+                dir("${env.TF_DIR}") {
                     script {
                         echo "========== INFOS LAB ==========="
                     }

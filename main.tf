@@ -25,10 +25,6 @@ resource "tls_private_key" "lab_ssh" {
 resource "aws_key_pair" "lab" {
   key_name   = "${var.env_name}-key"
   public_key = tls_private_key.lab_ssh.public_key_openssh
-
-  tags = {
-    Environment = var.env_name
-  }
 }
 
 # VPC, sous-réseaux, SG : via module (pour production, séparez si besoin)
@@ -67,11 +63,6 @@ resource "aws_security_group" "ssh" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = {
-    Environment = var.env_name
-    Role        = "ssh"
-  }
 }
 
 resource "aws_security_group" "web" {
@@ -96,11 +87,6 @@ resource "aws_security_group" "web" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Environment = var.env_name
-    Role        = "web"
   }
 }
 
@@ -194,10 +180,6 @@ resource "aws_lb_target_group" "web" {
     unhealthy_threshold = 2
     interval            = 15
     timeout             = 5
-  }
-
-  tags = {
-    Environment = var.env_name
   }
 }
 
