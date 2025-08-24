@@ -1,6 +1,6 @@
-# TerransiJenkins - Laboratoires AWS automatisés avec Terraform et Jenkins
+# TerransiJenkins - Laboratoires AWS automatisés avec Terraform, Jenkins et Ansible
 
-Déployez et gérez facilement des environnements de laboratoire AWS via Jenkins et Terraform.
+Déployez et gérez facilement des environnements de laboratoire AWS.
 
 ## Vue d'ensemble
 
