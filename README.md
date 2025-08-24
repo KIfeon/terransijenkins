@@ -26,6 +26,7 @@ Ce projet propose deux pipelines Jenkins :
 
 ### Destruction d’un environnement
 
+1. La pipeline de destruction utilise active choices. Pour configurer la pipeline suivre le tutoriel : [README_destruction_pipeline.md](README_destruction_pipeline.md) 
 1. Lancez le job de destruction.
 2. Sélectionnez l’environnement à détruire dans la liste.
 3. Exécutez. Tous les composants AWS du lab seront supprimés et l’état local nettoyé.
